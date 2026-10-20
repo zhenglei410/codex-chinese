@@ -1,0 +1,7 @@
+dist/
+deploy-report.json
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

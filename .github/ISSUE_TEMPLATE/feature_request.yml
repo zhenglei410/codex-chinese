@@ -1,0 +1,25 @@
+name: 功能建议
+description: 提出一个新功能或改进
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你要解决什么问题？
+      placeholder: 例如：希望支持开机自动强制中文
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你的建议方案
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 是否符合项目定位
+      options:
+        - label: 该功能不引入第三方 Go 依赖
+        - label: 该功能不会让产物体积显著增大

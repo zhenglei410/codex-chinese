@@ -1,0 +1,41 @@
+{
+  "name": "codex-chinese",
+  "version": "1.0.0",
+  "description": "Force the Codex desktop app to use its built-in zh-CN interface, even when Statsig/VPN is unreachable.",
+  "license": "AGPL-3.0-only",
+  "ai_entry": "AGENTS.md",
+  "ai_deploy_spec": "docs/AI_DEPLOY.md",
+  "language": "go",
+  "min_go_version": "1.21",
+  "third_party_dependencies": [],
+  "build": {
+    "command_unix": "VERSION=${VERSION:-dev} bash build.sh",
+    "command_windows": "powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1",
+    "env": { "CGO_ENABLED": "0" },
+    "flags": ["-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version=<version>"],
+    "output_dir": "dist"
+  },
+  "artifacts": [
+    { "target": "windows/amd64", "path": "dist/codex-chinese-windows-amd64.exe", "size_bytes_approx": 3674112 },
+    { "target": "windows/arm64", "path": "dist/codex-chinese-windows-arm64.exe", "size_bytes_approx": 3377152 },
+    { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "size_bytes_approx": 3582096 },
+    { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "size_bytes_approx": 3383138 },
+    { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "size_bytes_approx": 3535008 },
+    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "size_bytes_approx": 3408032 }
+  ],
+  "validate": {
+    "commands": [
+      "go vet ./...",
+      "./dist/codex-chinese-<goos>-<goarch> -version",
+      "./dist/codex-chinese-<goos>-<goarch> -doctor"
+    ],
+    "version_expect_prefix": "codex-chinese ",
+    "doctor_exit_ok": 0,
+    "doctor_exit_no_codex": 2
+  },
+  "run": {
+    "command": "./dist/codex-chinese-<goos>-<goarch>",
+    "requires": "Codex desktop app installed; user must fully quit Codex first",
+    "notes": "Launches Codex with --remote-debugging-port, injects a prelude over CDP, then reloads once."
+  }
+}
