@@ -26,11 +26,12 @@ build linux   amd64 ""
 build linux   arm64 ""
 
 # 托盘版仅 Windows（纯 Win32，无 cgo）
+# 必须带 -H=windowsgui：否则产物是控制台子系统程序，启动时会弹一个黑窗。
 build_tray() {
   local arch="$1"
   echo "building tray windows/${arch} (version=${VERSION}) ..."
   GOOS=windows GOARCH="$arch" CGO_ENABLED=0 \
-    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" \
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS -H=windowsgui" \
     -o "${OUT}/codex-chinese-tray-windows-${arch}.exe" ./tray
 }
 build_tray amd64

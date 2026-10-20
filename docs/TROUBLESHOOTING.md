@@ -60,6 +60,100 @@ C:\Windows\System32\wscript.exe "C:\...\launch-cn.vbs"
 | `FAIL: enable_i18n 仍为 false，补丁未覆盖 Statsig 图层` | 1 | 标记在，但开关没改到 | 先升级到 v1.2.0+（见下节）；仍失败再按 ARCHITECTURE 第 6 节重新定位 Layer 名 |
 | `FAIL: Codex 未以调试端口启动，或已完全退出` | 2 | 没有 CDP 端口 | 完全退出 Codex，用 CLI/托盘重新启动 |
 
+## 商店（MSIX）版 Codex：报「找不到 Codex」
+
+**症状**：托盘右键「立即强制中文」弹出「强制中文失败 / 找不到 Codex」；
+`-doctor` 显示 `codex: not-found`。
+
+**原因**：微软商店版 Codex 和传统安装版差别很大——
+
+| 项目 | 传统安装版 | 商店（MSIX）版 |
+|---|---|---|
+| 可执行文件名 | `Codex.exe` | **`ChatGPT.exe`** |
+| 安装位置 | `%LOCALAPPDATA%\Programs\Codex\` | `C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_<架构>__<哈希>\app\` |
+| 版本目录 | 固定 | **随机，每次更新都变** |
+| 应用执行别名 | 有 | **通常没有** |
+
+而且 `C:\Program Files\WindowsApps` 对普通用户**不允许列目录**，
+所以"扫一遍目录找 exe"这种写法在这里必然失败——只有已知完整路径才能读取和执行。
+
+**v1.3.0 起的做法**：从注册表读取安装目录，不依赖列目录权限：
+
+```
+HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\
+  AppModel\Repository\Packages\OpenAI.Codex_<版本>_<架构>__<哈希>\PackageRootFolder
+```
+
+拿到根目录后拼 `app\ChatGPT.exe` 即为真实路径。`-doctor` 会直接打印它：
+
+```
+codex: C:\Program Files\WindowsApps\OpenAI.Codex_26.1013.4894.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe
+```
+
+**仍然找不到时的三种指定方式**（优先级从高到低）：
+
+```powershell
+# 1. 命令行参数（托盘也支持，v1.3.0 起会透传给 CLI）
+codex-chinese-windows-amd64.exe -codex "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\ChatGPT.exe"
+
+# 2. 环境变量
+$env:CODEX_CHINESE_CODEX = "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\ChatGPT.exe"
+
+# 3. 直接给安装目录，程序会自己找里面的 ChatGPT.exe / Codex.exe
+codex-chinese-windows-amd64.exe -codex "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>"
+```
+
+> 版本号可以从 `Get-AppxPackage -Name *Codex*` 的 `InstallLocation` 字段拿到。
+
+## 托盘启动后弹出一个黑色窗口（v1.3.0 已修）
+
+黑窗是**托盘自己**的控制台窗口，不是 Codex。原因是托盘被编译成了
+控制台子系统程序（PE subsystem = 3）。
+
+v1.3.0 起托盘用 `-H=windowsgui` 构建（PE subsystem = 2），启动不再有黑窗。
+如果你用的是旧版，换 v1.3.0+ 的 `codex-chinese-tray-*.exe` 即可。
+
+自检方法（PowerShell）：
+
+```powershell
+$b = [IO.File]::ReadAllBytes(".\codex-chinese-tray-windows-amd64.exe")
+$pe = [BitConverter]::ToUInt32($b, 0x3c)
+[BitConverter]::ToUInt16($b, $pe + 24 + 68)   # 2 = GUI（正常），3 = 控制台（会有黑窗）
+```
+
+## `cdp: not-ready`，但 Codex 明明在运行
+
+**最常见原因：Codex 没有完全退出。**
+
+Electron 应用是单实例的：当已有 Codex 在跑时，你再带
+`--remote-debugging-port` 启动一个新进程，新进程只会把请求转交给已有实例
+然后**自己退出**，调试端口根本不会打开。
+
+商店版尤其容易踩坑——任务管理器里通常有**十几个 `ChatGPT.exe` 进程**
+（主进程、GPU 进程、渲染进程等），关掉主窗口不等于全部退出。
+
+正确操作：
+
+1. 关闭 Codex 窗口。
+2. 任务管理器 → 详细信息 → 结束所有 `ChatGPT.exe`（以及 `Codex.exe`）。
+3. 再运行 `codex-chinese.exe`，或者托盘「立即强制中文」。
+4. `-verify` 确认。
+
+如果确认已经全部退出、`-doctor` 也能打印出 codex 路径，但端口仍打不开，
+说明该版本的 Codex 不接受命令行开关，请跑下面这个诊断脚本把结果贴回来。
+
+## 一键诊断（推荐先跑这个）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1
+# 想直接验证"能不能带端口启动"：
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1 -TryLaunch
+```
+
+它会一次性输出：系统信息、商店包与真实路径、别名、正在运行的进程、
+调试端口状态，以及（加 `-TryLaunch` 时）真实启动测试的结果。
+把整段输出贴到 issue 里即可定位。
+
 ## `installed=true` 但 `i18n=false`（v1.2.0 已修）
 
 这个症状的含义是"**补丁挂上了，但界面还是英文**"。历史上它有两个原因：

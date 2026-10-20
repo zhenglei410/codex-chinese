@@ -1,6 +1,7 @@
 // force-codex-chinese (Go) —— 零第三方依赖，单文件小体积跨平台。
 // 机制：启动 Codex（带 --remote-debugging-port）→ CDP 注入 prelude →
-//       在渲染进程主世界里给 Statsig 的 i18n 开关（"72216192"）打补丁。
+//
+//	在渲染进程主世界里给 Statsig 的 i18n 开关（"72216192"）打补丁。
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -182,7 +184,7 @@ func main() {
 	if !*flagNoLaunch && !endpointReady(*flagPort) {
 		exe := findCodex()
 		if exe == "" {
-			fmt.Println("找不到 Codex。请用 -codex 指定路径，或先退出 Codex 再运行。")
+			explainCodexMissing()
 			os.Exit(1)
 		}
 		fmt.Println("启动 Codex:", exe)
@@ -344,6 +346,17 @@ func runDoctor() {
 	fmt.Printf("platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	if exe == "" {
 		fmt.Println("codex: not-found")
+		if *flagCodex != "" {
+			fmt.Printf("codex_arg: %s (不可访问)\n", *flagCodex)
+		}
+		fmt.Println("candidates:")
+		for i, c := range codexCandidates() {
+			if i >= 12 {
+				fmt.Println("  ...")
+				break
+			}
+			fmt.Printf("  - %s\n", c)
+		}
 	} else {
 		fmt.Printf("codex: %s\n", exe)
 	}
@@ -358,41 +371,142 @@ func runDoctor() {
 }
 
 // ---------------- 找 Codex ----------------
-func findCodex() string {
-	if *flagCodex != "" {
-		if _, err := os.Stat(*flagCodex); err == nil {
-			return *flagCodex
-		}
+// resolveExe 接受 exe 路径或安装目录，返回可执行的 exe 路径。
+// 允许传目录，是因为用户常常只知道安装目录。
+func resolveExe(p string) string {
+	p = strings.Trim(strings.TrimSpace(p), `"'`)
+	if p == "" {
 		return ""
 	}
-	var cands []string
+	if fi, err := os.Stat(p); err == nil {
+		if fi.IsDir() {
+			for _, name := range []string{"ChatGPT.exe", "Codex.exe", "codex.exe"} {
+				c := filepath.Join(p, name)
+				if _, e := os.Stat(c); e == nil {
+					return c
+				}
+			}
+			return ""
+		}
+		return p
+	}
+	return ""
+}
+
+// codexCandidates 返回按优先级排序的候选路径。
+//
+// 商店（MSIX）版 Codex 的可执行文件叫 ChatGPT.exe，安装在
+//
+//	C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_<架构>__<哈希>\app\
+//
+// 版本号与哈希都是随机的，所以不能写死路径，只能先找应用执行别名、
+// 再按 glob 匹配。
+func codexCandidates() []string {
 	switch runtime.GOOS {
 	case "windows":
 		la := os.Getenv("LOCALAPPDATA")
-		cands = []string{
-			filepath.Join(la, "Programs", "Codex", "Codex.exe"),
-			filepath.Join(la, "Programs", "codex", "Codex.exe"),
-			filepath.Join(la, "Microsoft", "WindowsApps", "Codex.exe"),
-			`C:\Program Files\Codex\Codex.exe`,
-			`C:\Program Files (x86)\Codex\Codex.exe`,
+		pf := os.Getenv("ProgramFiles")
+		pf86 := os.Getenv("ProgramFiles(x86)")
+		var out []string
+		if la != "" {
+			wa := filepath.Join(la, "Microsoft", "WindowsApps")
+			out = append(out,
+				// 应用执行别名：普通权限即可运行，商店版首选
+				filepath.Join(wa, "ChatGPT.exe"),
+				filepath.Join(wa, "Codex.exe"),
+				filepath.Join(la, "Programs", "Codex", "Codex.exe"),
+				filepath.Join(la, "Programs", "codex", "Codex.exe"),
+				filepath.Join(la, "Programs", "ChatGPT", "ChatGPT.exe"),
+			)
 		}
+		if pf != "" {
+			out = append(out,
+				filepath.Join(pf, "Codex", "Codex.exe"),
+				filepath.Join(pf, "ChatGPT", "ChatGPT.exe"),
+			)
+		}
+		if pf86 != "" {
+			out = append(out, filepath.Join(pf86, "Codex", "Codex.exe"))
+		}
+		out = append(out, storeCandidates()...)
+		return out
 	case "darwin":
 		home, _ := os.UserHomeDir()
-		cands = []string{
+		return []string{
 			"/Applications/Codex.app/Contents/MacOS/Codex",
 			filepath.Join(home, "Applications", "Codex.app", "Contents", "MacOS", "Codex"),
+			"/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
 		}
 	default:
-		cands = []string{"/usr/bin/codex", "/usr/local/bin/codex", "/opt/Codex/codex"}
+		return []string{"/usr/bin/codex", "/usr/local/bin/codex", "/opt/Codex/codex"}
 	}
-	for _, c := range cands {
-		if c != "" {
-			if _, err := os.Stat(c); err == nil {
-				return c
-			}
+}
+
+// storeCandidates 探测 MSIX / 商店版安装目录。
+//
+// 优先查注册表：C:\Program Files\WindowsApps 对普通用户**不可枚举**，
+// glob 在那里永远返回空；而注册表里的 PackageRootFolder 可读，
+// 拿到根目录后拼 app\ChatGPT.exe 就能用。
+func storeCandidates() []string {
+	out := storeCandidatesFromRegistry()
+
+	// glob 只在管理员权限（能列 WindowsApps）时有效，作为补充
+	patterns := []string{
+		`C:\Program Files\WindowsApps\OpenAI.Codex_*\app\ChatGPT.exe`,
+		`C:\Program Files\WindowsApps\OpenAI.Codex_*\app\Codex.exe`,
+	}
+	var globbed []string
+	for _, p := range patterns {
+		if m, err := filepath.Glob(p); err == nil {
+			globbed = append(globbed, m...)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(globbed)))
+	if len(globbed) > 6 {
+		globbed = globbed[:6]
+	}
+	return append(out, globbed...)
+}
+
+func findCodex() string {
+	if *flagCodex != "" {
+		return resolveExe(*flagCodex)
+	}
+	// 环境变量兜底，方便批量部署时统一指定
+	if v := os.Getenv("CODEX_CHINESE_CODEX"); v != "" {
+		if p := resolveExe(v); p != "" {
+			return p
+		}
+	}
+	for _, c := range codexCandidates() {
+		if p := resolveExe(c); p != "" {
+			return p
 		}
 	}
 	return ""
+}
+
+// explainCodexMissing 在找不到 Codex 时给出可执行的原因与出路，
+// 而不是一句"找不到"让用户猜。
+func explainCodexMissing() {
+	if *flagCodex != "" {
+		p := strings.Trim(strings.TrimSpace(*flagCodex), `"'`)
+		if _, err := os.Stat(p); err != nil {
+			fmt.Printf("指定的路径不可访问：%s\n", p)
+			fmt.Printf("  原因：%v\n", err)
+			if strings.Contains(strings.ToLower(p), `\windowsapps\`) {
+				fmt.Println("  提示：WindowsApps 受系统保护，普通权限可能读不到或无法直接执行。")
+				fmt.Println(`  请改用应用执行别名：-codex "%LOCALAPPDATA%\Microsoft\WindowsApps\ChatGPT.exe"`)
+			}
+			return
+		}
+		fmt.Printf("指定的路径是目录，但里面没有 ChatGPT.exe / Codex.exe：%s\n", p)
+		return
+	}
+	fmt.Println("没有自动找到 Codex。可用 -codex 指定，常见写法：")
+	fmt.Println(`  -codex "%LOCALAPPDATA%\Microsoft\WindowsApps\ChatGPT.exe"`)
+	fmt.Println(`  -codex "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\ChatGPT.exe"`)
+	fmt.Println("也可以设置环境变量 CODEX_CHINESE_CODEX 指向同一个路径。")
 }
 
 // ---------------- 极简 HTTP（仅 localhost，无 TLS） ----------------
@@ -673,9 +787,9 @@ func (w *wsConn) call(id int, method string, params any) (json.RawMessage, error
 			return nil, err
 		}
 		var resp struct {
-			ID    int             `json:"id"`
-			Error *struct{ Message string } `json:"error"`
-			Result json.RawMessage `json:"result"`
+			ID     int                       `json:"id"`
+			Error  *struct{ Message string } `json:"error"`
+			Result json.RawMessage           `json:"result"`
 		}
 		if err := json.Unmarshal(msg, &resp); err != nil {
 			continue

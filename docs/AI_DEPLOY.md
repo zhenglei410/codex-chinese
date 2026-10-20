@@ -360,7 +360,16 @@ PASS
 | 交叉编译报 `cgo` 相关错误 | 未设 `CGO_ENABLED=0` | 显式设置后重试 |
 | 产物体积 > 6 MB | 误引入 `net/http`/`crypto/tls` 或第三方库 | 检查 `go.mod` 与 import |
 | `-doctor` 退出码 2 | 本机无 Codex | 正常；换到安装了 Codex 的机器再运行 |
-| 运行时报“等待调试端口超时” | Codex 已在运行且未开调试端口 | 完全退出 Codex（含托盘）后重试 |
+| `-doctor` 显示 `codex: not-found`，但 Codex 确实装着 | 商店（MSIX）版：exe 叫 `ChatGPT.exe`，且 `WindowsApps` 不可枚举 | 用 v1.3.0+（自动从注册表定位），或 `-codex` 显式指定 |
+| 托盘启动后弹出黑色窗口 | 托盘被编译成控制台子系统 | 用 v1.3.0+；自建构建必须带 `-H=windowsgui` |
+| 运行时报“等待调试端口超时” | Codex 已在运行且未开调试端口（Electron 单实例会吞掉新进程的参数） | 任务管理器结束全部 `ChatGPT.exe` / `Codex.exe` 后重试 |
+
+上表仍无法定位时，跑一键诊断，并把整段输出贴回来：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1
+# 加 -TryLaunch 会真的带调试端口启动一次，验证该版本是否接受命令行开关
+```
 
 ---
 

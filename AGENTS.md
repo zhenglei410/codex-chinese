@@ -14,6 +14,7 @@
 | 桌面快捷方式 | TargetPath = `...\codex-chinese.exe` 或 `codex-chinese-tray.exe` | TargetPath = 脚本宿主 exe / `cmd.exe`，参数里塞 `.vbs` / `.bat` |
 | 判断成功 | `codex-chinese.exe -verify` **退出码 0**，且输出 `verify: installed=true lang=zh-CN i18n=true` | 看到"完成：Codex 已强制中文"、进程在跑、快捷方式已建、终端没报错 |
 | 安装方式 | `scripts/install_windows.ps1`（下发行版 + 校验 SHA256 + 建正确快捷方式） | 自己手搓包装脚本"帮用户简化一下" |
+| Codex 来源 | 先跑 `-doctor` 看 `codex:` 行；商店（MSIX）版会自动从注册表定位 | 自己拼 `WindowsApps\OpenAI.Codex_<版本>__<哈希>\app\ChatGPT.exe` 写死路径 |
 | 注入收尾 | 等 `-verify` 确认新页面已执行 prelude 再结束 | 注入后立刻退出（脚本随会话撤销，等于没注入） |
 | 失败时 | 原样贴出 `-verify` 输出，按 `docs/TROUBLESHOOTING.md` 处理 | 猜"可能重启一下就好"、反复重试、擅自改 Codex 配置 |
 
@@ -45,6 +46,8 @@
 
 ```
 main.go               核心 CLI：找 Codex、启动、HTTP、WebSocket、CDP、prelude
+findcodex_windows.go  Windows 专用：从注册表定位商店（MSIX）版 Codex
+findcodex_other.go    非 Windows 空实现
 detach_windows.go     Windows 进程分离（DETACHED_PROCESS）
 detach_unix.go        macOS/Linux 进程分离（Setsid）
 console_windows.go    Windows 控制台 UTF-8
@@ -60,6 +63,7 @@ docs/TROUBLESHOOTING.md 典型故障（含"快捷方式指向 wscript.exe"）
 docs/ARCHITECTURE.md  原理与数据流
 scripts/ai_deploy.*   一键部署脚本（AI 可直接运行）
 scripts/install_windows.ps1  Windows 安装器（下载发行版 + 建正确快捷方式）
+scripts/diagnose_windows.ps1 Windows 环境诊断（找不到 Codex / 端口打不开时先跑）
 .github/workflows/    CI 与 Release
 ```
 
@@ -86,8 +90,17 @@ scripts/install_windows.ps1  Windows 安装器（下载发行版 + 建正确快�
    i18n 开关，症状是"注入标记在、界面还是英文"。改 prelude 后必须跑
    `node test/prelude.test.mjs`。
 11. **改完 prelude 必须跑测试**：`node test/prelude.test.mjs` 必须全绿；
-   它会在没有 Codex 的环境里验证补丁行为，是唯一能提前发现第 10 条那类
-   逻辑错误的手段。
+    它会在没有 Codex 的环境里验证补丁行为，是唯一能提前发现第 10 条那类
+    逻辑错误的手段。
+12. **托盘必须编译成 GUI 子系统**：构建参数必须包含 `-H=windowsgui`。
+    漏掉它，产物就是控制台程序，用户一启动就看到一个黑窗（真实事故）。
+13. **不要在 `WindowsApps` 上用目录遍历/glob 找 exe**：普通用户对该目录
+    **没有列目录权限**，`filepath.Glob` 永远返回空。商店（MSIX）版的定位
+    必须走注册表 `HKCU\...\AppModel\Repository\Packages\OpenAI.Codex_*\PackageRootFolder`
+    （见 `findcodex_windows.go`），再拼 `app\ChatGPT.exe`。
+14. **托盘不能丢弃命令行参数**：`-codex` / `-port` 必须透传给
+    `codex-chinese.exe`。历史上托盘直接忽略它们，导致"用户明明指定了路径，
+    却报找不到 Codex"。
 
 ## 4. 常用命令
 
@@ -95,13 +108,16 @@ scripts/install_windows.ps1  Windows 安装器（下载发行版 + 建正确快�
 go vet ./...                     # 静态检查（含 tray 包）
 node test/prelude.test.mjs       # 注入脚本回归测试（改 prelude 后必跑）
 make test                        # 上面两项一起跑
-VERSION=v1.2.0 bash build.sh     # CLI 6 平台 + 托盘 2 平台
-make release VERSION=v1.2.0      # 同上
+VERSION=v1.3.0 bash build.sh     # CLI 6 平台 + 托盘 2 平台
+make release VERSION=v1.3.0      # 同上
 ./dist/codex-chinese-<os>-<arch> -version   # 版本
 ./dist/codex-chinese-<os>-<arch> -doctor    # 环境诊断（0=可用, 2=未找到 Codex）
-./dist/codex-chinese-tray-windows-amd64.exe # Windows 托盘
+./dist/codex-chinese-tray-windows-amd64.exe # Windows 托盘（GUI 子系统，无黑窗）
 ./dist/codex-chinese-windows-amd64.exe -verify  # 注入结果校验（0=PASS）
 ```
+
+托盘会透传 `-codex` / `-port` 给同目录的 `codex-chinese.exe`；
+失败细节写入 `%TEMP%\codex-chinese-tray.log`。
 
 Windows 安装器（下载发行版 + 校验 + 建正确的快捷方式）：
 

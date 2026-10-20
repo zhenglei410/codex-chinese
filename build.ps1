@@ -30,10 +30,11 @@ try {
   Build-Target "linux"   "arm64" ""
 
   # 托盘版（仅 Windows）
+  # 必须带 -H=windowsgui：否则产物是控制台子系统程序，启动时会弹一个黑窗。
   foreach ($arch in @("amd64", "arm64")) {
     Write-Host "building tray windows/$arch (version=$Version) ..."
     $env:GOOS = "windows"; $env:GOARCH = $arch; $env:CGO_ENABLED = "0"
-    go build -trimpath -buildvcs=false -ldflags $LdFlags -o "$Out/codex-chinese-tray-windows-$arch.exe" ./tray
+    go build -trimpath -buildvcs=false -ldflags "$LdFlags -H=windowsgui" -o "$Out/codex-chinese-tray-windows-$arch.exe" ./tray
   }
 }
 finally {

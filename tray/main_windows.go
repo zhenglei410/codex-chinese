@@ -11,34 +11,44 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 // version 由 -ldflags "-X main.version=..." 注入（与 CLI 共用构建参数）。
 var version = "dev"
 
+// 从命令行接收并原样透传给 codex-chinese.exe 的参数。
+// 托盘自己不做注入，但用户常常按 CLI 的用法给它传 -codex / -port，
+// 历史上这里直接丢弃，导致 CLI 用内置候选路径找不到商店版 Codex。
+var (
+	codexArg string
+	portArg  string
+)
+
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	shell32  = syscall.NewLazyDLL("shell32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 
-	procRegisterClassExW   = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW    = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW     = user32.NewProc("DefWindowProcW")
-	procGetMessageW        = user32.NewProc("GetMessageW")
-	procTranslateMessage   = user32.NewProc("TranslateMessage")
-	procDispatchMessageW   = user32.NewProc("DispatchMessageW")
-	procPostQuitMessage    = user32.NewProc("PostQuitMessage")
-	procDestroyWindow      = user32.NewProc("DestroyWindow")
-	procCreatePopupMenu    = user32.NewProc("CreatePopupMenu")
-	procAppendMenuW        = user32.NewProc("AppendMenuW")
-	procTrackPopupMenu     = user32.NewProc("TrackPopupMenu")
-	procDestroyMenu        = user32.NewProc("DestroyMenu")
+	procRegisterClassExW    = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW     = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW      = user32.NewProc("DefWindowProcW")
+	procGetMessageW         = user32.NewProc("GetMessageW")
+	procTranslateMessage    = user32.NewProc("TranslateMessage")
+	procDispatchMessageW    = user32.NewProc("DispatchMessageW")
+	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
+	procDestroyWindow       = user32.NewProc("DestroyWindow")
+	procCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
+	procAppendMenuW         = user32.NewProc("AppendMenuW")
+	procTrackPopupMenu      = user32.NewProc("TrackPopupMenu")
+	procDestroyMenu         = user32.NewProc("DestroyMenu")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
-	procGetCursorPos       = user32.NewProc("GetCursorPos")
-	procLoadIconW          = user32.NewProc("LoadIconW")
-	procLoadCursorW        = user32.NewProc("LoadCursorW")
+	procGetCursorPos        = user32.NewProc("GetCursorPos")
+	procLoadIconW           = user32.NewProc("LoadIconW")
+	procLoadCursorW         = user32.NewProc("LoadCursorW")
 
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
@@ -169,12 +179,53 @@ func cliPath() string {
 	return ""
 }
 
+// parseArgs 手动解析命令行。
+// 托盘是 GUI 程序（无控制台），flag 包遇到未知参数会直接退出且用户看不到
+// 任何提示，所以这里做宽容解析：认识的收下，不认识的忽略。
+func parseArgs() {
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
+		switch {
+		case a == "-codex" || a == "--codex":
+			if i+1 < len(os.Args) {
+				codexArg = os.Args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-codex="):
+			codexArg = strings.TrimPrefix(a, "-codex=")
+		case strings.HasPrefix(a, "--codex="):
+			codexArg = strings.TrimPrefix(a, "--codex=")
+		case a == "-port" || a == "--port":
+			if i+1 < len(os.Args) {
+				portArg = os.Args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-port="):
+			portArg = strings.TrimPrefix(a, "-port=")
+		case strings.HasPrefix(a, "--port="):
+			portArg = strings.TrimPrefix(a, "--port=")
+		}
+	}
+}
+
+// withGlobals 把托盘收到的 -codex / -port 透传给 CLI。
+func withGlobals(args []string) []string {
+	out := append([]string{}, args...)
+	if codexArg != "" {
+		out = append(out, "-codex", codexArg)
+	}
+	if portArg != "" {
+		out = append(out, "-port", portArg)
+	}
+	return out
+}
+
 func runCLI(args ...string) (string, error) {
 	cli := cliPath()
 	if cli == "" {
 		return "", fmt.Errorf("未找到 codex-chinese.exe，请与托盘程序放在同一目录")
 	}
-	cmd := exec.Command(cli, args...)
+	cmd := exec.Command(cli, withGlobals(args)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -194,16 +245,29 @@ func setTip(text string) {
 	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&gNID)))
 }
 
+// logf 写诊断日志。托盘是 GUI 程序，没有控制台，失败细节只能落到文件里，
+// 否则用户只看到一句"找不到 Codex"，无从排查。
+func logf(format string, a ...any) {
+	p := filepath.Join(os.TempDir(), "codex-chinese-tray.log")
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, a...))
+}
+
 func doForce() {
 	setTip("codex-chinese：正在强制中文…")
 	out, err := runCLI()
+	logf("force: args=[%s] err=%v out=%s", strings.Join(withGlobals(nil), " "), err, out)
 	if err != nil {
 		msg := out
-		if msg == "" {
+		if strings.TrimSpace(msg) == "" {
 			msg = err.Error()
 		}
 		balloon("强制中文失败", lastLine(msg))
-		setTip("codex-chinese：失败")
+		setTip("codex-chinese：失败（详见 %TEMP%\\codex-chinese-tray.log）")
 		return
 	}
 	balloon("已强制中文", "Codex 已切换为中文界面")
@@ -212,11 +276,30 @@ func doForce() {
 
 func doDoctor() {
 	out, err := runCLI("-doctor")
-	if err != nil && out == "" {
+	logf("doctor: err=%v out=%s", err, out)
+	if err != nil && strings.TrimSpace(out) == "" {
 		balloon("诊断失败", err.Error())
 		return
 	}
-	balloon("环境诊断", lastLine(out))
+	balloon("环境诊断", compact(out))
+}
+
+// compact 从 doctor 输出里挑出最关键的两行，气球空间有限。
+func compact(out string) string {
+	var codex, cdp string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "codex:") {
+			codex = line
+		}
+		if strings.HasPrefix(line, "cdp:") {
+			cdp = line
+		}
+	}
+	if codex == "" && cdp == "" {
+		return lastLine(out)
+	}
+	return strings.TrimSpace(codex + "  |  " + cdp)
 }
 
 func lastLine(s string) string {
@@ -289,6 +372,7 @@ func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 }
 
 func main() {
+	parseArgs()
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
 
 	className, _ := syscall.UTF16PtrFromString("CodexChineseTrayWindow")

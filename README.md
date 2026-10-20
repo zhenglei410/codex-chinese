@@ -90,6 +90,14 @@ codex-chinese-windows-amd64.exe -verify
 托盘版会调用同目录的 `codex-chinese.exe`，所以两个文件要放在一起。
 它常驻后，每次重启 Codex 只需再点一次「立即强制中文」。
 
+托盘也接受 `-codex` / `-port`，会原样透传给 CLI，例如：
+
+```powershell
+codex-chinese-tray-windows-amd64.exe -codex "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\ChatGPT.exe"
+```
+
+失败细节写在 `%TEMP%\codex-chinese-tray.log`（托盘是 GUI 程序，没有控制台）。
+
 ### 参数
 
 | 参数 | 说明 |
@@ -109,8 +117,20 @@ codex-chinese-windows-amd64.exe -verify
   `xattr -d com.apple.quarantine ./codex-chinese-darwin-arm64`
 - **Windows SmartScreen 拦截**
   点"更多信息 → 仍要运行"（本程序未做代码签名）。
-- **提示"等待调试端口超时"**
-  Codex 还在后台运行。请完全退出（含托盘图标）后重试。
+- **提示"等待调试端口超时" / `cdp: not-ready`**
+  Codex 还在后台运行。Electron 是单实例的，已有实例会吞掉新进程的参数，
+  调试端口不会打开。请到任务管理器结束**全部** `ChatGPT.exe`（商店版通常有
+  十几个进程）和 `Codex.exe`，再重试。
+- **商店（MSIX）版报"找不到 Codex"**
+  商店版的可执行文件叫 `ChatGPT.exe`，装在
+  `C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\` 下，
+  且该目录**不允许普通用户列目录**。v1.3.0 起会自动从注册表读取安装位置；
+  仍失败时用 `-codex` 手动指定，或给安装目录让它自己找。
+- **托盘启动后弹出黑色窗口**
+  v1.3.0 已修（托盘改为 GUI 子系统编译）。升级到 v1.3.0+ 即可。
+- **想一次性看全部环境信息**
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1`
+  （加 `-TryLaunch` 会真的带调试端口启动一次做验证）。
 - **桌面快捷方式指向 `wscript.exe` / `.vbs`，界面仍是英文**
   这是错误部署。VBS 不会给 Codex 传调试端口，注入不可能生效。
   详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
