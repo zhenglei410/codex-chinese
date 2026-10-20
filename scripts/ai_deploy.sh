@@ -35,6 +35,21 @@ go vet ./... >/tmp/codex-chinese-vet.log 2>&1
 VET_EXIT=$?
 [ "$VET_EXIT" -eq 0 ] || { cat /tmp/codex-chinese-vet.log >&2; fail "vet-failed"; }
 
+# ---------- 3.5 注入脚本回归测试 ----------
+# prelude 是内联在 main.go 里的 JS，go vet 看不到它的逻辑错误。
+# 有 node 就必须跑；没有 node 记为 skipped（不阻断纯 Go 环境的构建）。
+PRELUDE_TEST="skipped-no-node"
+if command -v node >/dev/null 2>&1; then
+  if node test/prelude.test.mjs >/tmp/codex-chinese-prelude.log 2>&1; then
+    PRELUDE_TEST="pass"
+  else
+    tail -20 /tmp/codex-chinese-prelude.log >&2
+    fail "prelude-test-failed: see /tmp/codex-chinese-prelude.log"
+  fi
+else
+  printf 'WARN: 未检测到 node，跳过 test/prelude.test.mjs（建议安装 node >= 18）\n' >&2
+fi
+
 # ---------- 4. 校验产物 ----------
 size_of() {
   if stat -c%s "$1" >/dev/null 2>&1; then stat -c%s "$1"; else stat -f%z "$1"; fi
@@ -82,6 +97,6 @@ DOCTOR_EXIT=$?
 [ "$DOCTOR_EXIT" -eq 0 ] || [ "$DOCTOR_EXIT" -eq 2 ] || fail "doctor-failed: $DOCTOR_EXIT"
 
 # ---------- 7. 输出报告 ----------
-REPORT_JSON="{\"ok\":true,\"version\":\"$VERSION\",\"go_version\":\"$GO_VER\",\"vet_exit\":$VET_EXIT,\"artifacts\":[$JSON_ITEMS],\"doctor_exit\":$DOCTOR_EXIT,\"notes\":\"doctor_exit=2 means Codex not installed on this machine\"}"
+REPORT_JSON="{\"ok\":true,\"version\":\"$VERSION\",\"go_version\":\"$GO_VER\",\"vet_exit\":$VET_EXIT,\"prelude_test\":\"$PRELUDE_TEST\",\"artifacts\":[$JSON_ITEMS],\"doctor_exit\":$DOCTOR_EXIT,\"notes\":\"doctor_exit=2 means Codex not installed on this machine\"}"
 printf '%s\n' "$REPORT_JSON"
 printf '%s\n' "$REPORT_JSON" > "$REPORT"

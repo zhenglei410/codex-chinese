@@ -39,6 +39,16 @@ go vet ./... | Out-Null
 $VetExit = $LASTEXITCODE
 if ($VetExit -ne 0) { Fail "vet-failed" }
 
+# 3.5 注入脚本回归测试（prelude 是内联 JS，go vet 看不到它的逻辑错误）
+$PreludeTest = "skipped-no-node"
+if (Get-Command node -ErrorAction SilentlyContinue) {
+  node test/prelude.test.mjs | Out-Null
+  if ($LASTEXITCODE -ne 0) { Fail "prelude-test-failed: run 'node test/prelude.test.mjs'" }
+  $PreludeTest = "pass"
+} else {
+  Write-Host "WARN: 未检测到 node，跳过 test/prelude.test.mjs（建议安装 node >= 18）"
+}
+
 # 4. 校验产物
 $Artifacts = @(
   @{ target = "windows/amd64"; path = "dist/codex-chinese-windows-amd64.exe" },
@@ -77,6 +87,7 @@ $reportObj = [ordered]@{
   version = $Version
   go_version = $GoVer
   vet_exit = $VetExit
+  prelude_test = $PreludeTest
   artifacts = $items
   doctor_exit = $DoctorExit
   notes = "doctor_exit=2 means Codex not installed on this machine"

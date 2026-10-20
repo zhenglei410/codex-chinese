@@ -36,7 +36,7 @@ const prelude = `(function () {
   defineNav("language", locale);
   defineNav("languages", languages);
   function patchValue(obj) {
-    if (!obj || typeof obj !== "object") return;
+    if (!obj || typeof obj !== "object") return obj;
     var base = (obj.__value && typeof obj.__value === "object") ? obj.__value : ((obj.value && typeof obj.value === "object") ? obj.value : {});
     var next = Object.assign({}, base, { enable_i18n: true, locale_source: "SYSTEM" });
     try { obj.__value = next; } catch (e) {}
@@ -50,6 +50,7 @@ const prelude = `(function () {
       };
       obj.__zhPatched = true;
     }
+    return obj;
   }
   function patchClient(client) {
     if (!client || typeof client !== "object") return;
@@ -58,7 +59,10 @@ const prelude = `(function () {
       if (!orig) return;
       client[name] = function (n, o) {
         var r = orig(n, o);
-        return n === "72216192" ? patchValue(r) : r;
+        // 必须原样返回 r。写成 return patchValue(r) 会在 patchValue 无返回值时
+        // 把 Layer 变成 undefined，导致 Codex 拿不到 i18n 开关（汉化静默失效）。
+        if (n === "72216192") patchValue(r);
+        return r;
       };
     }
     if (client.__zhClientPatched) return;
@@ -68,7 +72,8 @@ const prelude = `(function () {
       var o = client._getLayerImpl.bind(client);
       client._getLayerImpl = function (n) {
         var r = o.apply(null, arguments);
-        return n === "72216192" ? patchValue(r) : r;
+        if (n === "72216192") patchValue(r);
+        return r;
       };
     }
     client.__zhClientPatched = true;
@@ -156,6 +161,7 @@ var (
 	flagNoLaunch = flag.Bool("no-launch", false, "只注入已开调试端口的实例")
 	flagVersion  = flag.Bool("version", false, "打印版本并退出")
 	flagDoctor   = flag.Bool("doctor", false, "诊断环境并退出（供 AI/CI 校验）")
+	flagVerify   = flag.Bool("verify", false, "校验当前 Codex 是否真的已注入中文（退出码 0=通过）")
 )
 
 func main() {
@@ -167,6 +173,9 @@ func main() {
 	if *flagDoctor {
 		runDoctor()
 		return
+	}
+	if *flagVerify {
+		os.Exit(runVerify(*flagPort))
 	}
 	fmt.Println("== 强制 Codex 中文界面 ==")
 
@@ -226,9 +235,105 @@ func main() {
 			fmt.Println("刷新失败:", err)
 			os.Exit(1)
 		}
-		fmt.Println("已触发刷新，中文界面将在加载后生效。")
+		// 关键：注册的脚本与 CDP 会话同生命周期。必须等新文档真正执行完 prelude
+		// 再断开，否则脚本会在加载前被撤销，注入等于没做。
+		if waitInjected(ws, 15*time.Second) {
+			fmt.Println("注入已生效（页面已加载）。")
+		} else {
+			fmt.Println("警告：页面中未检测到注入标记，请运行 -verify 复查。")
+		}
 	}
 	fmt.Println("完成：Codex 已强制中文。")
+}
+
+// 轮询页面，确认 prelude 已经真正执行（注入标记出现）。
+func waitInjected(ws *wsConn, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		res, err := ws.call(800, "Runtime.evaluate", map[string]any{
+			"expression":    "!!window.__codexPlusForceZhInstalled",
+			"returnByValue": true,
+		})
+		if err == nil {
+			var w struct {
+				Result struct {
+					Value bool `json:"value"`
+				} `json:"result"`
+			}
+			if json.Unmarshal(res, &w) == nil && w.Result.Value {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// ---------------- 注入结果校验（供 AI 部署 / 用户自检） ----------------
+// 在页面里读取注入标记、navigator 语言与 Statsig 的 enable_i18n。
+const verifyExpr = `(function(){try{var r=window.__STATSIG__,i18n=null;try{var c=r&&(r.firstInstance||(typeof r.instance==="function"?r.instance():null));if(c&&c.getLayer){var l=c.getLayer("72216192",{disableExposureLog:true});i18n=l?String(l.get("enable_i18n",false)):"layer-undefined";}}catch(e){i18n="err";}return JSON.stringify({installed:!!window.__codexPlusForceZhInstalled,lang:String(navigator.language||""),i18n:i18n});}catch(e){return JSON.stringify({installed:false,lang:"",i18n:"err"});}})()`
+
+// 退出码：0=已注入且语言为中文；1=未通过；2=无法连接（未开调试端口/Codex 未运行）
+func runVerify(port int) int {
+	if !endpointReady(port) {
+		fmt.Printf("verify: cdp not-ready (127.0.0.1:%d)\n", port)
+		fmt.Println("FAIL: Codex 未以调试端口启动，或已完全退出")
+		return 2
+	}
+	t, err := pickTarget(port)
+	if err != nil {
+		fmt.Println("verify: target error:", err)
+		return 2
+	}
+	ws, err := dialWS(t.WSURL)
+	if err != nil {
+		fmt.Println("verify: connect error:", err)
+		return 2
+	}
+	defer ws.Close()
+
+	res, err := ws.call(900, "Runtime.evaluate", map[string]any{
+		"expression":    verifyExpr,
+		"returnByValue": true,
+	})
+	if err != nil {
+		fmt.Println("verify: evaluate error:", err)
+		return 2
+	}
+	var wrap struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(res, &wrap); err != nil {
+		fmt.Println("verify: parse error:", err)
+		return 2
+	}
+	var v struct {
+		Installed bool   `json:"installed"`
+		Lang      string `json:"lang"`
+		I18n      string `json:"i18n"`
+	}
+	if err := json.Unmarshal([]byte(wrap.Result.Value), &v); err != nil {
+		fmt.Println("verify: parse payload error:", err)
+		return 2
+	}
+	fmt.Printf("verify: installed=%t lang=%s i18n=%s\n", v.Installed, v.Lang, v.I18n)
+	ok := v.Installed && strings.HasPrefix(strings.ToLower(v.Lang), "zh")
+	if ok && v.I18n == "false" {
+		// 标记在、语言对，但图层里的开关仍是 false：说明补丁没作用到 Layer 上，
+		// Codex 依然会按英文渲染。这是"注入了但没汉化"的典型形态。
+		fmt.Println("FAIL: enable_i18n 仍为 false，补丁未覆盖 Statsig 图层")
+		return 1
+	}
+	if ok {
+		fmt.Println("PASS")
+		return 0
+	}
+	fmt.Println("FAIL: 未检测到注入标记或语言不是中文")
+	return 1
 }
 
 // ---------------- 环境诊断（供 AI 部署 / CI 校验） ----------------

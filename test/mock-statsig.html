@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Codex Mock (Statsig layer 72216192)</title>
+<style>
+  body { font: 14px/1.6 system-ui; padding: 24px; }
+  code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Codex Mock</h1>
+<p>模拟 Codex 内置的 Statsig Layer <code>72216192</code>，初始 <code>enable_i18n=false</code>、
+<code>locale_source="SYSTEM"</code>。注入脚本应把两者改写为 <code>true</code> / <code>zh-CN</code>。</p>
+<pre id="out">-</pre>
+<script>
+  // 模拟真实环境：页面脚本自己赋值 window.__STATSIG__，注入脚本要拦截这个赋值。
+  var layer = {
+    __value: { enable_i18n: false, locale_source: "SYSTEM" },
+    value:   { enable_i18n: false, locale_source: "SYSTEM" },
+    get: function (k, d) { return Object.prototype.hasOwnProperty.call(this.__value, k) ? this.__value[k] : d; }
+  };
+  window.__STATSIG__ = {
+    firstInstance: {
+      getLayer: function (name, opts) { return layer; },
+      getDynamicConfig: function (name, opts) { return layer; }
+    }
+  };
+  window.__mockReady = true;
+
+  function render() {
+    var l = window.__STATSIG__.firstInstance.getLayer("72216192", {});
+    document.getElementById("out").textContent =
+      "enable_i18n   = " + String(l.get("enable_i18n", false)) + "\n" +
+      "locale_source = " + String(l.get("locale_source", "")) + "\n" +
+      "navigator.lang = " + String(navigator.language) + "\n" +
+      "installed      = " + String(!!window.__codexPlusForceZhInstalled);
+  }
+  render();
+  setTimeout(render, 1200);
+</script>
+</body>
+</html>

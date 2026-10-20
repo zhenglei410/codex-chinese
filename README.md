@@ -91,6 +91,7 @@ chmod +x codex-chinese-darwin-arm64
 | `-no-reload` | 只注册脚本，不刷新 |
 | `-version` | 打印版本 |
 | `-doctor` | 环境诊断（`exit 0` 可用 / `exit 2` 未找到 Codex） |
+| `-verify` | 校验是否真的已注入中文（`PASS` + `exit 0` 为准） |
 
 ### 常见问题
 
@@ -100,17 +101,27 @@ chmod +x codex-chinese-darwin-arm64
   点"更多信息 → 仍要运行"（本程序未做代码签名）。
 - **提示"等待调试端口超时"**
   Codex 还在后台运行。请完全退出（含托盘图标）后重试。
+- **桌面快捷方式指向 `wscript.exe` / `.vbs`，界面仍是英文**
+  这是错误部署。VBS 不会给 Codex 传调试端口，注入不可能生效。
+  详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
+- **怎么确认真的生效了**
+  运行 `codex-chinese.exe -verify`，输出 `PASS` 才算成功。
+  完整判据是这一行：`verify: installed=true lang=zh-CN i18n=true`。
+  如果显示 `installed=true` 但 `i18n=false`，说明是 v1.1.0 及更早版本
+  （已修复），换 v1.2.0+ 即可。
 - **每次重启 Codex 都要重跑吗？**
   是。程序不常驻、不写注册表；需要的话可自行做开机自启。
 
 ## 从源码构建
 
-需要 Go ≥ 1.21，**零第三方依赖**。
+需要 Go ≥ 1.21，**零第三方依赖**。跑测试需要 Node ≥ 18（仅测试用）。
 
 ```bash
-VERSION=v1.0.0 bash build.sh     # 六个平台，产物在 dist/
+node test/prelude.test.mjs       # 注入脚本回归测试（11 项）
+go vet ./...
+VERSION=v1.2.0 bash build.sh     # 六个平台，产物在 dist/
 # Windows:
-$env:VERSION="v1.0.0"; .\build.ps1
+$env:VERSION="v1.2.0"; .\build.ps1
 ```
 
 实测体积：
@@ -138,8 +149,8 @@ $env:VERSION="v1.0.0"; .\build.ps1
 
 一句话给代理：
 
-> 读 `AGENTS.md`，然后运行 `scripts/ai_deploy.sh`（Windows 用 `scripts/ai_deploy.ps1`），
-> 核对返回 JSON 的 `ok=true` 与 8 个产物。
+> 读 `AGENTS.md`，Windows 优先运行 `scripts/install_windows.ps1`（下载发行版、建正确的 exe 快捷方式），
+> 启动后用 `codex-chinese.exe -verify` 校验，**输出 `PASS` 才算成功**。
 
 按 `AGENTS.md` 5.1 的硬性要求，**AI 在部署完成后必须主动告诉用户怎么用**
 （产物位置、启动方式、首次前置、成功标志、常用参数、重启提醒、排障），

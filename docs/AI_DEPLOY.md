@@ -9,7 +9,28 @@
 
 - 输入：本仓库源码（已 `git clone` 或解压到本地）。
 - 产出：`dist/` 下 6 个平台的二进制，以及一段 JSON 报告。
-- 预计耗时：< 2 分钟（不含首次下载 Go）。
+- 预计耗时：< 2 分钟（不含下载）。
+
+---
+
+## 0.5 推荐路径：直接安装发行版（无需 Go）
+
+适用于绝大多数情况。**不要把这一步替换成“写一个 .vbs / .bat 启动器”**——
+VBS 不会给 Codex 传 `--remote-debugging-port`，注入不可能生效。
+
+Windows：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
+# 离线：-AssetDir .\dist
+```
+
+安装器会：下载对应架构的 CLI + 托盘 → 校验 SHA256 → 安装到
+`%LOCALAPPDATA%\Programs\codex-chinese` → 创建**直接指向 exe** 的快捷方式。
+
+macOS / Linux：从 Release 下载对应二进制，`chmod +x` 后直接运行。
+
+> 只有在无网络、或需要改代码时，才走下面的源码构建。
 
 ---
 
@@ -118,6 +139,18 @@ go vet ./...
 
 期望：退出码 `0`，无输出。
 
+### 4.1.5 注入脚本回归测试
+
+```bash
+node test/prelude.test.mjs
+```
+
+期望：末行 `ALL PASS (11 项)`，退出码 `0`。
+
+`prelude` 是内联在 `main.go` 里的 JS 字符串，`go vet` 完全看不到它的逻辑错误。
+这一步在没有 Codex 的机器上也能跑，专门保护"补丁返回 undefined 导致汉化静默失效"
+这类只有运行时才暴露的问题。**改动 `main.go` 里的 prelude 后必须重跑。**
+
 ### 4.2 产物存在性
 
 ```bash
@@ -166,6 +199,28 @@ codex-chinese v1.0.0 linux/amd64
 |---|---|
 | `0` | 找到 Codex，或检测到可注入的 CDP 端口 |
 | `2` | 既没找到 Codex，也没有调试端口（在 CI/无 Codex 环境下属正常） |
+
+### 4.5 注入结果校验（运行后必做）
+
+```bash
+./dist/codex-chinese-<os>-<arch> -verify
+```
+
+期望输出形如：
+
+```
+verify: installed=true lang=zh-CN i18n=true
+PASS
+```
+
+| 输出 | 退出码 | 含义 | 处置 |
+|---|---|---|---|
+| `PASS` | 0 | 已注入、语言中文、`enable_i18n=true` | 完成 |
+| `installed=false` | 1 | Codex 在跑但没被注入 | 检查快捷方式是否直指 `codex-chinese*.exe` |
+| `installed=true i18n=false` | 1 | 补丁没打到 Statsig 图层，界面仍英文 | 换用 v1.2.0+ 二进制 |
+| `cdp not-ready` | 2 | 没有 CDP 端口 | 完全退出 Codex 后重启 |
+
+**不能**用“进程启动了”“快捷方式存在”“终端没报错”代替这一步。
 
 ---
 
@@ -282,3 +337,6 @@ codex-chinese v1.0.0 linux/amd64
 - 不要在未退出 Codex 的情况下反复重试运行（会持续超时）。
 - 不要只分发托盘 exe 而漏掉同目录的 `codex-chinese.exe`（托盘依赖它完成注入）。
 - 不要省略第 7 步：部署完成后必须把使用说明交给用户。
+- 不要生成 `.vbs` / `.bat` 启动器，不要创建指向 `wscript.exe` / `cmd.exe` 的快捷方式。
+  快捷方式必须直接指向 `codex-chinese*.exe`。
+- 不要用“进程存在 / 快捷方式存在 / 没有报错”作为成功判据，必须跑 `-verify` 且退出码为 0。

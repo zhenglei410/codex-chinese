@@ -2,7 +2,7 @@ VERSION ?= dev
 OUT     := dist
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build vet test release clean doctor
+.PHONY: all build vet test test-go test-js release clean doctor
 
 all: build
 
@@ -12,8 +12,14 @@ build:
 vet:
 	go vet ./...
 
-test:
+test: test-go test-js
+
+test-go:
 	go test ./...
+
+# prelude 是内联 JS 字符串，go vet 看不到它的逻辑错误，必须单独跑。
+test-js:
+	node test/prelude.test.mjs
 
 doctor: build
 	./$(OUT)/codex-chinese-$(shell go env GOOS)-$(shell go env GOARCH) -doctor || true

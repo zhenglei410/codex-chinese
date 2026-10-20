@@ -1,6 +1,6 @@
 {
   "name": "codex-chinese",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Force the Codex desktop app to use its built-in zh-CN interface, even when Statsig/VPN is unreachable.",
   "license": "AGPL-3.0-only",
   "ai_entry": "AGENTS.md",
@@ -16,24 +16,42 @@
     "output_dir": "dist"
   },
   "artifacts": [
-    { "target": "windows/amd64", "path": "dist/codex-chinese-windows-amd64.exe", "size_bytes_approx": 3674112 },
-    { "target": "windows/arm64", "path": "dist/codex-chinese-windows-arm64.exe", "size_bytes_approx": 3377152 },
-    { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "size_bytes_approx": 3582096 },
-    { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "size_bytes_approx": 3383138 },
-    { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "size_bytes_approx": 3535008 },
+    { "target": "windows/amd64", "path": "dist/codex-chinese-windows-amd64.exe", "size_bytes_approx": 3683840 },
+    { "target": "windows/arm64", "path": "dist/codex-chinese-windows-arm64.exe", "size_bytes_approx": 3386368 },
+    { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "size_bytes_approx": 3590576 },
+    { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "size_bytes_approx": 3399922 },
+    { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "size_bytes_approx": 3547296 },
     { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "size_bytes_approx": 3408032 },
-    { "target": "windows/amd64", "path": "dist/codex-chinese-tray-windows-amd64.exe", "size_bytes_approx": 3674112, "variant": "tray" },
-    { "target": "windows/arm64", "path": "dist/codex-chinese-tray-windows-arm64.exe", "size_bytes_approx": 3377152, "variant": "tray" }
+    { "target": "windows/amd64", "path": "dist/codex-chinese-tray-windows-amd64.exe", "size_bytes_approx": 2023424, "variant": "tray" },
+    { "target": "windows/arm64", "path": "dist/codex-chinese-tray-windows-arm64.exe", "size_bytes_approx": 1902592, "variant": "tray" }
   ],
   "validate": {
     "commands": [
       "go vet ./...",
+      "node test/prelude.test.mjs",
       "./dist/codex-chinese-<goos>-<goarch> -version",
       "./dist/codex-chinese-<goos>-<goarch> -doctor"
     ],
     "version_expect_prefix": "codex-chinese ",
     "doctor_exit_ok": 0,
-    "doctor_exit_no_codex": 2
+    "doctor_exit_no_codex": 2,
+    "prelude_test_expect_stdout_contains": "ALL PASS"
+  },
+  "install_windows": {
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_windows.ps1",
+    "offline_option": "-AssetDir .\\dist",
+    "shortcut_rule": "shortcut TargetPath MUST be codex-chinese*.exe; never wscript.exe/cmd.exe/.vbs/.bat"
+  },
+  "verify": {
+    "command": "./dist/codex-chinese-<goos>-<goarch> -verify",
+    "success_exit_code": 0,
+    "success_stdout_contains": "PASS",
+    "success_stdout_shape": "verify: installed=true lang=zh-CN i18n=true",
+    "failure_modes": {
+      "exit_1_installed_false": "running but not injected (e.g. shortcut bypasses codex-chinese.exe)",
+      "exit_1_i18n_false": "marker present but patch missed the Statsig layer; upgrade to v1.2.0+",
+      "exit_2": "no CDP port; Codex not launched with --remote-debugging-port or already exited"
+    }
   },
   "run": {
     "command": "./dist/codex-chinese-<goos>-<goarch>",
@@ -50,8 +68,10 @@
       "success marker: '完成：Codex 已强制中文。'",
       "common flags: -codex, -port, -no-launch, -doctor",
       "reminder: re-run after each Codex restart, or keep the tray app running",
-      "troubleshooting: port timeout, macOS quarantine, Windows SmartScreen"
+      "troubleshooting: port timeout, macOS quarantine, Windows SmartScreen",
+      "verification: run codex-chinese -verify and require exit code 0 (PASS) before claiming success",
+      "the PASS line must read i18n=true; installed=true with i18n=false means the patch missed the layer"
     ],
-    "user_message_template": "部署完成 ✅ 产物在 dist/。Windows 推荐双击 codex-chinese-tray-windows-amd64.exe（托盘常驻），右键图标选「立即强制中文」；也可直接运行 codex-chinese-windows-amd64.exe。使用前请先完全退出 Codex（含托盘图标）。看到「完成：Codex 已强制中文」即成功。每次重启 Codex 后需再执行一次；用 -doctor 可诊断环境。"
+    "user_message_template": "部署完成 ✅ Windows 推荐用 scripts/install_windows.ps1 安装（或双击 codex-chinese-tray-windows-amd64.exe，与 codex-chinese.exe 放同一目录）。使用前请先完全退出 Codex（含托盘图标），再右键托盘图标选「立即强制中文」。用 codex-chinese.exe -verify 校验，输出 verify: installed=true lang=zh-CN i18n=true 且 PASS 才算成功。每次重启 Codex 后需再执行一次。"
   }
 }

@@ -5,3 +5,5 @@ deploy-report.json
 Thumbs.db
 .idea/
 .vscode/
+test/edge-hl/
+test/edge-profile/

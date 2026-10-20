@@ -26,6 +26,10 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Prelude regression tests
+        shell: bash
+        run: node test/prelude.test.mjs
+
       - name: Build (unix)
         if: runner.os != 'Windows'
         run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w" -o dist/codex-chinese .

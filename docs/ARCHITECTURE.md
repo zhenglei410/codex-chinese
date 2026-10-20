@@ -50,6 +50,19 @@ Codex 桌面应用内置了 `zh-CN` 语言包，但"是否启用"由 Statsig 特
                    └─────────────────────────────────────┘
 ```
 
+### 3.1 一个必须知道的坑：注入脚本与会话同生命周期
+
+`Page.addScriptToEvaluateOnNewDocument` 注册的脚本**绑定在当前的 CDP 会话上**。
+一旦 WebSocket 断开，注册立即失效。
+
+所以"注册完 → `Page.reload` → 立刻 `ws.Close()`"这个看似理所当然的顺序是**错的**：
+刷新触发的新文档还没来得及执行 prelude，脚本就被撤销了，结果**什么都没注入**，
+而进程退出码依然是 0。
+
+正确做法是注入后**等新文档真正执行完 prelude 再断开**：轮询
+`!!window.__codexPlusForceZhInstalled`，最多 15 秒（`waitInjected()`）。
+这也是 `-verify` 存在的意义——它能戳破"退出码 0 但其实没注入"的假成功。
+
 ## 4. prelude 的三个关键点
 
 ### 4.1 拦截 Statsig 赋值
@@ -78,6 +91,24 @@ Statsig 初始化时会执行 `window.__STATSIG__ = ...`。prelude 用
 用 `sessionStorage` 打标记，避免"设置未生效 → 再刷新"的死循环。
 
 这就是"需重启 Codex 才能完整生效"的来源——刷新后语言才真正落下来。
+
+### 4.4 包装器必须原样返回原对象
+
+包装 `getLayer` / `getDynamicConfig` 时只有一个合法写法：
+
+```js
+var r = orig(n, o);
+if (n === "72216192") patchValue(r);
+return r;                     // ✅ 返回原对象
+```
+
+**不能**写成 `return n === "72216192" ? patchValue(r) : r;`。
+`patchValue()` 是"就地改写"的辅助函数，即使它返回 `obj`，这种写法也会把
+"返回值"和"补丁动作"耦合在一起；一旦它没有返回值，`getLayer("72216192")`
+就变成 `undefined`，应用拿不到 Layer，i18n 开关落空——**注入标记正常、
+进程退出码 0、界面依旧英文**，是最难排查的一类故障。
+
+这条约束由 `test/prelude.test.mjs` 守护（断言语义而非实现细节）。
 
 ## 5. 体积工程
 
