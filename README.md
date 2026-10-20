@@ -59,15 +59,25 @@ chmod +x codex-chinese-darwin-arm64
 ./codex-chinese-darwin-arm64
 ```
 
-看到下面这样就成功了：
+运行后终端会显示：
 
 ```
 == 强制 Codex 中文界面 ==
 注入目标: app://...
 已注册注入脚本（对后续所有页面生效）。
-已触发刷新，中文界面将在加载后生效。
+注入已生效（页面已加载）。
 完成：Codex 已强制中文。
 ```
+
+但**不要只看这几行就以为成功了**——它只代表流程走完。真正的判据是：
+
+```bash
+codex-chinese-windows-amd64.exe -verify
+# verify: installed=true lang=zh-CN i18n=true
+# PASS                        ← 退出码 0 才算成功
+```
+
+三个数字缺一不可：`installed=true`、`lang=zh-CN`、`i18n=true`。
 
 ### Windows 托盘版（常驻）
 

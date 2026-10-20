@@ -38,7 +38,25 @@ codex-chinese-windows-amd64.exe      # Windows
 ```
 
 Flags: `-codex <path>`, `-port <n>`, `-wait <n>`, `-no-launch`, `-no-reload`,
-`-version`, `-doctor`.
+`-version`, `-doctor`, `-verify`.
+
+### Verify it actually worked
+
+```bash
+codex-chinese-windows-amd64.exe -verify
+# verify: installed=true lang=zh-CN i18n=true
+# PASS                          <- exit code 0 is the only success criterion
+```
+
+All three values must hold: `installed=true`, `lang=zh-CN`, `i18n=true`.
+The `完成：Codex 已强制中文` line printed by the main run is just a progress
+message — it is **not** proof of success.
+
+> **Never wrap this binary in a `.vbs` / `.bat` launcher, and never point a
+> shortcut at `wscript.exe` or `cmd.exe`.** A wrapper does not pass
+> `--remote-debugging-port`, so there is no CDP session and the injection can
+> never happen — the UI simply stays English with no error shown.
+> Shortcuts must target `codex-chinese*.exe` directly.
 
 ### Windows tray
 
@@ -47,10 +65,12 @@ Right-click the tray icon for **Force Chinese / Doctor / Quit**.
 
 ## Build
 
-Requires Go ≥ 1.21, no third-party modules.
+Requires Go ≥ 1.21, no third-party modules. Node ≥ 18 is only needed for tests.
 
 ```bash
-VERSION=v1.0.0 bash build.sh
+node test/prelude.test.mjs       # prelude regression tests (11 assertions)
+go vet ./...
+VERSION=v1.2.0 bash build.sh
 ```
 
 ## AI-driven deployment

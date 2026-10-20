@@ -59,13 +59,30 @@
     "notes": "Launches Codex with --remote-debugging-port, injects a prelude over CDP, then reloads once.",
     "tray_windows": "./dist/codex-chinese-tray-windows-amd64.exe (requires codex-chinese.exe in the same directory)"
   },
+  "golden_path": {
+    "summary": "Run codex-chinese*.exe directly so it launches Codex with --remote-debugging-port, inject, then require -verify exit code 0. Never wrap it in a launcher script.",
+    "do": [
+      "install via scripts/install_windows.ps1 or the release binary",
+      "point every shortcut TargetPath at codex-chinese.exe or codex-chinese-tray.exe",
+      "fully quit Codex (including tray icon) before running",
+      "require -verify exit code 0 and a stdout line 'verify: installed=true lang=zh-CN i18n=true'",
+      "tell the user how to use it after deploy (see post_deploy)"
+    ],
+    "do_not": [
+      "create .vbs or .bat launchers",
+      "create shortcuts whose TargetPath is wscript.exe or cmd.exe",
+      "treat '完成：Codex 已强制中文', a running process, or the presence of a shortcut as success",
+      "launch Codex manually before injecting (the debug port would not be open)",
+      "drop the CDP session before the reloaded page has executed the prelude"
+    ]
+  },
   "post_deploy": {
     "must_tell_user_how_to_use": true,
     "required_points": [
       "artifact location under dist/ and which file to use on this platform",
       "how to start: Windows tray exe (right-click -> force Chinese) or CLI exe; macOS/Linux CLI",
       "prerequisite: fully quit Codex including tray icon before running",
-      "success marker: '完成：Codex 已强制中文。'",
+      "success marker: -verify exits 0 with a line 'verify: installed=true lang=zh-CN i18n=true' (the printed line '完成：Codex 已强制中文' is NOT a success marker)",
       "common flags: -codex, -port, -no-launch, -doctor",
       "reminder: re-run after each Codex restart, or keep the tray app running",
       "troubleshooting: port timeout, macOS quarantine, Windows SmartScreen",

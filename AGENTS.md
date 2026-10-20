@@ -3,6 +3,24 @@
 > 本文件是给 AI 编码代理（OpenAI Codex、Claude Code、Cursor 等）的项目说明书。
 > 读到本文件后，按 `docs/AI_DEPLOY.md` 执行部署，并在完成后**主动告诉用户怎么用**（见 5.1）。
 
+## 0. 先看这里：什么才算"做对了"（**必读，优先级最高**）
+
+这个工具只做一件事：**用带 `--remote-debugging-port` 的方式启动 Codex，然后注入补丁**。
+凡是绕开这一步的"聪明办法"，**全部无效**，而且通常不会报错。
+
+| 环节 | ✅ 正确做法 | ❌ 错误做法（真实事故） |
+|---|---|---|
+| 启动 Codex | 直接运行 `codex-chinese*.exe`，它自己带调试端口拉起 Codex | 写一个 `launch.bat` / `launch.vbs` 再调用；或先手动开 Codex 再注入 |
+| 桌面快捷方式 | TargetPath = `...\codex-chinese.exe` 或 `codex-chinese-tray.exe` | TargetPath = 脚本宿主 exe / `cmd.exe`，参数里塞 `.vbs` / `.bat` |
+| 判断成功 | `codex-chinese.exe -verify` **退出码 0**，且输出 `verify: installed=true lang=zh-CN i18n=true` | 看到"完成：Codex 已强制中文"、进程在跑、快捷方式已建、终端没报错 |
+| 安装方式 | `scripts/install_windows.ps1`（下发行版 + 校验 SHA256 + 建正确快捷方式） | 自己手搓包装脚本"帮用户简化一下" |
+| 注入收尾 | 等 `-verify` 确认新页面已执行 prelude 再结束 | 注入后立刻退出（脚本随会话撤销，等于没注入） |
+| 失败时 | 原样贴出 `-verify` 输出，按 `docs/TROUBLESHOOTING.md` 处理 | 猜"可能重启一下就好"、反复重试、擅自改 Codex 配置 |
+
+**两条铁律**：
+1. 快捷方式的 TargetPath 必须是 `codex-chinese*.exe`，**永远不要**是 `wscript.exe`、`cmd.exe` 或 `.vbs` / `.bat`。
+2. 唯一成功判据是 `-verify` 退出码 0。程序自己打印的"完成"只是过程提示，**不是判据**。
+
 ## 1. 项目是什么
 
 `codex-chinese` 是一个**单文件、零第三方依赖、跨平台**的 Go 小程序，用于强制 Codex 桌面应用
@@ -127,7 +145,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
    - Windows 一次性：运行 `codex-chinese-windows-amd64.exe`。
    - macOS / Linux：`./codex-chinese-darwin-arm64`（或对应平台文件）。
 3. **首次使用前置条件**：先**完全退出 Codex（含托盘图标）**。
-4. **成功标志**：终端出现 `完成：Codex 已强制中文。`。
+4. **成功标志**：`-verify` 退出码 0（输出 `PASS`，且有一行
+   `verify: installed=true lang=zh-CN i18n=true`）。
+   程序打印的「完成：Codex 已强制中文。」只是过程提示，**不能**当作成功依据。
 5. **常用参数**：`-codex` 指定路径、`-port` 端口、`-no-launch` 只注入、`-doctor` 诊断。
 6. **重要提醒**：每次重启 Codex 后需重新运行（或让托盘版常驻）。
 7. **故障排查**：端口超时 → 退出 Codex 重试；macOS 被拦 → `xattr -d com.apple.quarantine`；
@@ -138,7 +158,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
 > 部署完成 ✅
 > 产物在 `dist/`。Windows 推荐双击 `codex-chinese-tray-windows-amd64.exe`（托盘常驻），
 > 右键图标选「立即强制中文」；也可以直接运行 `codex-chinese-windows-amd64.exe`。
-> 使用前请先完全退出 Codex（含托盘图标）。看到「完成：Codex 已强制中文」即成功。
+> 使用前请先完全退出 Codex（含托盘图标）。
+> 最后跑一次 `codex-chinese-windows-amd64.exe -verify`，输出 `PASS`
+> 且那行显示 `installed=true lang=zh-CN i18n=true` 才算成功。
 > 每次重启 Codex 后需要再执行一次；用 `-doctor` 可诊断环境。
 
 ## 6. 发布流程（仅在有授权时）

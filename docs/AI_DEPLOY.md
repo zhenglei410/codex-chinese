@@ -5,6 +5,31 @@
 
 ---
 
+## 0.0 正确 vs 错误（**先读这一节，否则极易做出"看起来成功"的错误部署**）
+
+本工具的工作链条只有一条，断了任何一环都**不会报错**，只是界面保持英文：
+
+```
+codex-chinese.exe 启动 Codex（带 --remote-debugging-port）
+        └─► 连上 CDP → 注入 prelude → reload → 等新页面执行完脚本 → 断开
+                └─► -verify 退出码 0  ← 唯一可信的成功证据
+```
+
+| 环节 | ✅ 这样做才对 | ❌ 这样做一定失败 |
+|---|---|---|
+| 启动 | 直接运行 `codex-chinese*.exe` | 写 `.vbs` / `.bat` 启动器；先手动开 Codex 再注入 |
+| 快捷方式 | 指向 `codex-chinese.exe` / `codex-chinese-tray.exe` | 指向 `wscript.exe` / `cmd.exe`，参数里放脚本文件 |
+| 安装 | 跑 `scripts/install_windows.ps1` | 自己拼一套"更简单"的包装来替代它 |
+| 判成功 | `-verify` 退出码 0 且 `i18n=true` | 看终端有没有打印"完成"、看进程在不在、看快捷方式建没建 |
+| 出错时 | 原样贴 `-verify` 输出 + 查第 8 节 | 让用户"重启试试"、反复重跑、改 Codex 配置 |
+
+> **如果你正打算写一个包装脚本或启动器"帮用户简化操作"——立刻停下。**
+> 历史上就是这样产出了
+> `wscript.exe "...\launch-cn.vbs"` 的快捷方式：VBS 不给 Codex 传调试端口，
+> 注入链路根本不存在，用户看到的是"部署成功但界面还是英文"。
+
+---
+
 ## 0. 输入与产出
 
 - 输入：本仓库源码（已 `git clone` 或解压到本地）。
@@ -239,9 +264,16 @@ PASS
 == 强制 Codex 中文界面 ==
 注入目标: app://...
 已注册注入脚本（对后续所有页面生效）。
-已触发刷新，中文界面将在加载后生效。
+注入已生效（页面已加载）。
 完成：Codex 已强制中文。
 ```
+
+其中 `注入已生效（页面已加载）` 是程序等到新页面真正执行完 prelude 才打印的。
+如果这里变成 `警告：页面中未检测到注入标记，请运行 -verify 复查。`，
+说明注入失败，**不要**继续往下报告成功，直接跑 `-verify` 并按第 8 节排查。
+
+程序末尾的 `完成：Codex 已强制中文。` 只是流程走完的提示，
+**真正的成功判据只有 `-verify` 退出码 0**（见 4.5）。
 
 ### 5.1 Windows 托盘版
 
@@ -298,7 +330,9 @@ PASS
    - Windows 一次性：运行 `codex-chinese-windows-amd64.exe`。
    - macOS / Linux：`./codex-chinese-darwin-arm64`（或对应平台）。
 3. **首次前置**：先完全退出 Codex（含托盘图标）。
-4. **成功标志**：终端出现 `完成：Codex 已强制中文。`
+4. **成功标志**：`-verify` 退出码 0（输出 `PASS`，且有一行
+   `verify: installed=true lang=zh-CN i18n=true`）。
+   程序打印的「完成：Codex 已强制中文。」只是过程提示，**不是**成功依据。
 5. **常用参数**：`-codex` / `-port` / `-no-launch` / `-doctor`。
 6. **重要提醒**：每次重启 Codex 后需重新执行（或让托盘版常驻）。
 7. **故障排查**：端口超时 → 退出 Codex 重试；macOS 被拦 → `xattr -d com.apple.quarantine`；
@@ -309,7 +343,9 @@ PASS
 > 部署完成 ✅
 > 产物在 `dist/`。Windows 推荐双击 `codex-chinese-tray-windows-amd64.exe`（托盘常驻），
 > 右键图标选「立即强制中文」；也可以直接运行 `codex-chinese-windows-amd64.exe`。
-> 使用前请先完全退出 Codex（含托盘图标）。看到「完成：Codex 已强制中文」即成功。
+> 使用前请先完全退出 Codex（含托盘图标）。
+> 最后跑 `codex-chinese-windows-amd64.exe -verify`，输出 `PASS` 且那行显示
+> `installed=true lang=zh-CN i18n=true` 才算成功。
 > 每次重启 Codex 后需要再执行一次；用 `-doctor` 可诊断环境。
 
 ---
