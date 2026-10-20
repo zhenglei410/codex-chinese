@@ -85,6 +85,30 @@
       "scan WindowsApps with glob/find (the directory is not listable by normal users)"
     ]
   },
+  "self_heal": {
+    "enabled": true,
+    "policy": "On any failure: collect evidence, locate root cause, fix the code, re-verify, then report. Never bounce a raw error back to the user and never fake a PASS.",
+    "playbook": "AGENTS.md section 6 (AI self-healing playbook)",
+    "collect_first": [
+      "codex-chinese -doctor",
+      "codex-chinese -verify",
+      "powershell -File scripts/diagnose_windows.ps1 -TryLaunch",
+      "%TEMP%\\codex-chinese-tray.log (tray scenarios)"
+    ],
+    "must_self_verify": [
+      "gofmt -l . prints nothing",
+      "go vet ./... exits 0",
+      "node test/prelude.test.mjs prints ALL PASS",
+      "build produces 8 artifacts",
+      "codex-chinese -doctor prints a real codex path or exits 0",
+      "codex-chinese -verify exits 0"
+    ],
+    "ask_user_before": [
+      "killing an app the user is currently running (e.g. their Codex)",
+      "git push, tagging, or creating a release",
+      "modifying user environment, registry, or the Codex install directory"
+    ]
+  },
   "post_deploy": {
     "must_tell_user_how_to_use": true,
     "required_points": [
