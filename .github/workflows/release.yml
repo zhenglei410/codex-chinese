@@ -22,7 +22,7 @@ jobs:
         run: VERSION="${GITHUB_REF_NAME}" bash build.sh
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/codex-chinese-windows-amd64.exe
