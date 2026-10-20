@@ -21,7 +21,9 @@
     { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "size_bytes_approx": 3582096 },
     { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "size_bytes_approx": 3383138 },
     { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "size_bytes_approx": 3535008 },
-    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "size_bytes_approx": 3408032 }
+    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "size_bytes_approx": 3408032 },
+    { "target": "windows/amd64", "path": "dist/codex-chinese-tray-windows-amd64.exe", "size_bytes_approx": 3674112, "variant": "tray" },
+    { "target": "windows/arm64", "path": "dist/codex-chinese-tray-windows-arm64.exe", "size_bytes_approx": 3377152, "variant": "tray" }
   ],
   "validate": {
     "commands": [
@@ -36,6 +38,20 @@
   "run": {
     "command": "./dist/codex-chinese-<goos>-<goarch>",
     "requires": "Codex desktop app installed; user must fully quit Codex first",
-    "notes": "Launches Codex with --remote-debugging-port, injects a prelude over CDP, then reloads once."
+    "notes": "Launches Codex with --remote-debugging-port, injects a prelude over CDP, then reloads once.",
+    "tray_windows": "./dist/codex-chinese-tray-windows-amd64.exe (requires codex-chinese.exe in the same directory)"
+  },
+  "post_deploy": {
+    "must_tell_user_how_to_use": true,
+    "required_points": [
+      "artifact location under dist/ and which file to use on this platform",
+      "how to start: Windows tray exe (right-click -> force Chinese) or CLI exe; macOS/Linux CLI",
+      "prerequisite: fully quit Codex including tray icon before running",
+      "success marker: '完成：Codex 已强制中文。'",
+      "common flags: -codex, -port, -no-launch, -doctor",
+      "reminder: re-run after each Codex restart, or keep the tray app running",
+      "troubleshooting: port timeout, macOS quarantine, Windows SmartScreen"
+    ],
+    "user_message_template": "部署完成 ✅ 产物在 dist/。Windows 推荐双击 codex-chinese-tray-windows-amd64.exe（托盘常驻），右键图标选「立即强制中文」；也可直接运行 codex-chinese-windows-amd64.exe。使用前请先完全退出 Codex（含托盘图标）。看到「完成：Codex 已强制中文」即成功。每次重启 Codex 后需再执行一次；用 -doctor 可诊断环境。"
   }
 }

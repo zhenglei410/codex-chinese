@@ -46,7 +46,9 @@ $Artifacts = @(
   @{ target = "darwin/amd64";  path = "dist/codex-chinese-darwin-amd64" },
   @{ target = "darwin/arm64";  path = "dist/codex-chinese-darwin-arm64" },
   @{ target = "linux/amd64";   path = "dist/codex-chinese-linux-amd64" },
-  @{ target = "linux/arm64";   path = "dist/codex-chinese-linux-arm64" }
+  @{ target = "linux/arm64";   path = "dist/codex-chinese-linux-arm64" },
+  @{ target = "windows/amd64"; path = "dist/codex-chinese-tray-windows-amd64.exe" },
+  @{ target = "windows/arm64"; path = "dist/codex-chinese-tray-windows-arm64.exe" }
 )
 $items = @()
 foreach ($a in $Artifacts) {
@@ -54,7 +56,7 @@ foreach ($a in $Artifacts) {
   $len = (Get-Item $a.path).Length
   $items += [ordered]@{ target = $a.target; path = $a.path; bytes = $len }
 }
-if ($items.Count -ne 6) { Fail ("artifact-count: " + $items.Count) }
+if ($items.Count -ne 8) { Fail ("artifact-count: " + $items.Count + " (expect 8: 6 CLI + 2 tray)") }
 
 # 5. 版本自证（用本机 Windows 产物）
 $hostBin = "dist\codex-chinese-windows-amd64.exe"

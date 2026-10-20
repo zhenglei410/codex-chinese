@@ -124,16 +124,18 @@ go vet ./...
 ls -l dist/
 ```
 
-期望恰好 6 个文件：
+期望恰好 8 个文件：
 
-| 文件 | 目标 |
-|---|---|
-| `codex-chinese-windows-amd64.exe` | Windows x64 |
-| `codex-chinese-windows-arm64.exe` | Windows ARM64 |
-| `codex-chinese-darwin-amd64` | macOS Intel |
-| `codex-chinese-darwin-arm64` | macOS Apple Silicon |
-| `codex-chinese-linux-amd64` | Linux x64 |
-| `codex-chinese-linux-arm64` | Linux ARM64 |
+| 文件 | 目标 | 形态 |
+|---|---|---|
+| `codex-chinese-windows-amd64.exe` | Windows x64 | CLI |
+| `codex-chinese-windows-arm64.exe` | Windows ARM64 | CLI |
+| `codex-chinese-darwin-amd64` | macOS Intel | CLI |
+| `codex-chinese-darwin-arm64` | macOS Apple Silicon | CLI |
+| `codex-chinese-linux-amd64` | Linux x64 | CLI |
+| `codex-chinese-linux-arm64` | Linux ARM64 | CLI |
+| `codex-chinese-tray-windows-amd64.exe` | Windows x64 | 托盘 |
+| `codex-chinese-tray-windows-arm64.exe` | Windows ARM64 | 托盘 |
 
 体积应在 3.2–3.8 MB 之间；若超过 6 MB，视为回归。
 
@@ -186,6 +188,16 @@ codex-chinese v1.0.0 linux/amd64
 完成：Codex 已强制中文。
 ```
 
+### 5.1 Windows 托盘版
+
+```powershell
+.\dist\codex-chinese-tray-windows-amd64.exe
+```
+
+常驻托盘，右键图标：**立即强制中文 / 环境诊断 / 退出**。
+托盘会把实际注入交给同目录的 `codex-chinese.exe`，因此发布/分发时两个 exe 需放在同一目录。
+（开发目录下会自动回退查找 `dist\codex-chinese-windows-amd64.exe`。）
+
 ---
 
 ## 6. 输出 JSON 报告（交给调用方）
@@ -205,7 +217,9 @@ codex-chinese v1.0.0 linux/amd64
     { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "bytes": 3582096 },
     { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "bytes": 3383138 },
     { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "bytes": 3535008 },
-    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "bytes": 3408032 }
+    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "bytes": 3408032 },
+    { "target": "windows/amd64", "path": "dist/codex-chinese-tray-windows-amd64.exe", "bytes": 3674112, "variant": "tray" },
+    { "target": "windows/arm64", "path": "dist/codex-chinese-tray-windows-arm64.exe", "bytes": 3377152, "variant": "tray" }
   ],
   "doctor_exit": 0,
   "notes": "doctor_exit=2 表示本机未安装 Codex，属正常"
@@ -216,7 +230,36 @@ codex-chinese v1.0.0 linux/amd64
 
 ---
 
-## 7. 故障对照表
+## 7. 向用户交付使用说明（必须执行）
+
+构建与校验完成后，**必须**用用户使用的语言，把下面这些信息告诉用户。
+不要只返回 JSON 或产物路径。
+
+必须覆盖的 7 点：
+
+1. **产物位置**：`dist/`，并指出当前平台推荐用哪个文件。
+2. **启动方式**：
+   - Windows 常驻：双击 `codex-chinese-tray-windows-amd64.exe`，右键托盘图标 →「立即强制中文」。
+   - Windows 一次性：运行 `codex-chinese-windows-amd64.exe`。
+   - macOS / Linux：`./codex-chinese-darwin-arm64`（或对应平台）。
+3. **首次前置**：先完全退出 Codex（含托盘图标）。
+4. **成功标志**：终端出现 `完成：Codex 已强制中文。`
+5. **常用参数**：`-codex` / `-port` / `-no-launch` / `-doctor`。
+6. **重要提醒**：每次重启 Codex 后需重新执行（或让托盘版常驻）。
+7. **故障排查**：端口超时 → 退出 Codex 重试；macOS 被拦 → `xattr -d com.apple.quarantine`；
+   Windows SmartScreen → 更多信息 → 仍要运行。
+
+推荐话术（可直接发给用户）：
+
+> 部署完成 ✅
+> 产物在 `dist/`。Windows 推荐双击 `codex-chinese-tray-windows-amd64.exe`（托盘常驻），
+> 右键图标选「立即强制中文」；也可以直接运行 `codex-chinese-windows-amd64.exe`。
+> 使用前请先完全退出 Codex（含托盘图标）。看到「完成：Codex 已强制中文」即成功。
+> 每次重启 Codex 后需要再执行一次；用 `-doctor` 可诊断环境。
+
+---
+
+## 8. 故障对照表
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
@@ -230,10 +273,12 @@ codex-chinese v1.0.0 linux/amd64
 
 ---
 
-## 8. 禁止事项
+## 9. 禁止事项
 
 - 不要执行 `git push`、创建 Release、修改远程仓库（除非用户明确授权）。
 - 不要修改 `main.go` 里的 prelude，除非用户要求适配新版 Codex。
 - 不要引入第三方 Go 模块。
 - 不要用 UPX 压缩产物。
 - 不要在未退出 Codex 的情况下反复重试运行（会持续超时）。
+- 不要只分发托盘 exe 而漏掉同目录的 `codex-chinese.exe`（托盘依赖它完成注入）。
+- 不要省略第 7 步：部署完成后必须把使用说明交给用户。

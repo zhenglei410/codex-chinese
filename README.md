@@ -41,6 +41,10 @@ Codex 桌面应用的中文（`zh-CN`）语言包是内置的，但**是否启�
 | macOS Apple Silicon | `codex-chinese-darwin-arm64` |
 | Linux x64 | `codex-chinese-linux-amd64` |
 | Linux ARM64 | `codex-chinese-linux-arm64` |
+| Windows x64（托盘） | `codex-chinese-tray-windows-amd64.exe` |
+| Windows ARM64（托盘） | `codex-chinese-tray-windows-arm64.exe` |
+
+> 托盘版需与同目录的 `codex-chinese.exe` 一起使用（它负责实际注入）。
 
 ## 使用
 
@@ -64,6 +68,17 @@ chmod +x codex-chinese-darwin-arm64
 已触发刷新，中文界面将在加载后生效。
 完成：Codex 已强制中文。
 ```
+
+### Windows 托盘版（常驻）
+
+双击 `codex-chinese-tray-windows-amd64.exe`，托盘出现图标后右键：
+
+- **立即强制中文** —— 启动/注入并刷新
+- **环境诊断** —— 显示 Codex 路径与调试端口状态
+- **退出**
+
+托盘版会调用同目录的 `codex-chinese.exe`，所以两个文件要放在一起。
+它常驻后，每次重启 Codex 只需再点一次「立即强制中文」。
 
 ### 参数
 
@@ -124,7 +139,11 @@ $env:VERSION="v1.0.0"; .\build.ps1
 一句话给代理：
 
 > 读 `AGENTS.md`，然后运行 `scripts/ai_deploy.sh`（Windows 用 `scripts/ai_deploy.ps1`），
-> 核对返回 JSON 的 `ok=true` 与 6 个产物。
+> 核对返回 JSON 的 `ok=true` 与 8 个产物。
+
+按 `AGENTS.md` 5.1 的硬性要求，**AI 在部署完成后必须主动告诉用户怎么用**
+（产物位置、启动方式、首次前置、成功标志、常用参数、重启提醒、排障），
+而不是只返回一段 JSON。
 
 ## 免责声明
 

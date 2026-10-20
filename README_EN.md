@@ -40,6 +40,11 @@ codex-chinese-windows-amd64.exe      # Windows
 Flags: `-codex <path>`, `-port <n>`, `-wait <n>`, `-no-launch`, `-no-reload`,
 `-version`, `-doctor`.
 
+### Windows tray
+
+Run `codex-chinese-tray-windows-amd64.exe` (keep `codex-chinese.exe` in the same folder).
+Right-click the tray icon for **Force Chinese / Doctor / Quit**.
+
 ## Build
 
 Requires Go ≥ 1.21, no third-party modules.

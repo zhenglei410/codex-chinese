@@ -25,6 +25,17 @@ build darwin  arm64 ""
 build linux   amd64 ""
 build linux   arm64 ""
 
+# 托盘版仅 Windows（纯 Win32，无 cgo）
+build_tray() {
+  local arch="$1"
+  echo "building tray windows/${arch} (version=${VERSION}) ..."
+  GOOS=windows GOARCH="$arch" CGO_ENABLED=0 \
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" \
+    -o "${OUT}/codex-chinese-tray-windows-${arch}.exe" ./tray
+}
+build_tray amd64
+build_tray arm64
+
 echo "--- sizes ---"
 ls -lh "$OUT"
 

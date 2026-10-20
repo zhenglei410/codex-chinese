@@ -47,6 +47,8 @@ ARTIFACTS=(
   "darwin/arm64|dist/codex-chinese-darwin-arm64"
   "linux/amd64|dist/codex-chinese-linux-amd64"
   "linux/arm64|dist/codex-chinese-linux-arm64"
+  "windows/amd64|dist/codex-chinese-tray-windows-amd64.exe"
+  "windows/arm64|dist/codex-chinese-tray-windows-arm64.exe"
 )
 JSON_ITEMS=""
 COUNT=0
@@ -59,7 +61,7 @@ for item in "${ARTIFACTS[@]}"; do
   [ -z "$JSON_ITEMS" ] || JSON_ITEMS="$JSON_ITEMS,"
   JSON_ITEMS="$JSON_ITEMS{\"target\":\"$target\",\"path\":\"$path\",\"bytes\":$bytes}"
 done
-[ "$COUNT" -eq 6 ] || fail "artifact-count: $COUNT"
+[ "$COUNT" -eq 8 ] || fail "artifact-count: $COUNT (expect 8: 6 CLI + 2 tray)"
 
 # ---------- 5. 版本自证 ----------
 HOST_OS="$(go env GOOS)"

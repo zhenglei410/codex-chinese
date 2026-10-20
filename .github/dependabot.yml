@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # 本项目零 Go 依赖，只跟踪 GitHub Actions 版本
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
