@@ -19,8 +19,19 @@
 
 ## 一句话给 AI
 
-> 打开并完整阅读 [`AGENTS.md`](AGENTS.md)，按 [`docs/AI_DEPLOY.md`](docs/AI_DEPLOY.md)
-> 构建、安装并验证本项目。只有 `codex-chinese.exe -verify` 退出码为 `0` 才算部署成功。
+### 国内 AI（Gitee 推荐）
+
+> 请打开并完整阅读 `https://gitee.com/zhenglei410/codex-chinese/blob/master/AGENTS.md`，
+> 按照仓库中的 `AGENTS.md` 和 `docs/AI_DEPLOY.md` 完成 Codex 中文工具的构建、安装、
+> 托盘接管和验证。最终必须运行 `codex-chinese.exe -verify`，退出码为 `0` 且输出
+> `PASS`，才能报告部署成功。
+
+### 海外 AI（GitHub 推荐）
+
+> 请打开并完整阅读 `https://github.com/zhenglei410/codex-chinese/blob/main/AGENTS.md`，
+> 按照仓库中的 `AGENTS.md` 和 `docs/AI_DEPLOY.md` 完成 Codex 中文工具的构建、安装、
+> 托盘接管和验证。最终必须运行 `codex-chinese.exe -verify`，退出码为 `0` 且输出
+> `PASS`，才能报告部署成功。
 
 仓库地址：
 
