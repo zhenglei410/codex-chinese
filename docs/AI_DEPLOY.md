@@ -25,6 +25,7 @@ Start-Process explorer.exe `
 ```
 
 这会重启一次 Codex。若 AI 运行在 Codex 内，当前工具调用可能中断，必须先告知用户。
+也可以给部署脚本加 `-Start`，效果相同。
 
 ## 2. 前置条件
 

@@ -133,11 +133,35 @@ if (-not $NoInstall) {
     Fail "autostart-not-configured"
   }
 
+  $TrayBytes = [IO.File]::ReadAllBytes($InstalledTray)
+  $PeOffset = [BitConverter]::ToInt32($TrayBytes, 0x3c)
+  $Subsystem = [BitConverter]::ToUInt16($TrayBytes, $PeOffset + 24 + 68)
+  if ($Subsystem -ne 2) {
+    Fail "tray-subsystem-not-gui: $Subsystem"
+  }
+
+  $Shell = New-Object -ComObject WScript.Shell
+  $Shortcuts = @(
+    (Join-Path ([Environment]::GetFolderPath("Desktop")) "Codex 中文.lnk"),
+    (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Codex 中文.lnk")
+  )
+  foreach ($ShortcutPath in $Shortcuts) {
+    if (-not (Test-Path -LiteralPath $ShortcutPath)) {
+      Fail "shortcut-missing: $ShortcutPath"
+    }
+    $Shortcut = $Shell.CreateShortcut($ShortcutPath)
+    if ($Shortcut.TargetPath -ne $InstalledTray) {
+      Fail "shortcut-target-mismatch: $ShortcutPath -> $($Shortcut.TargetPath)"
+    }
+  }
+
   $Install = [ordered]@{
     dir = $InstallDir
     cli = $InstalledCli
     tray = $InstalledTray
     autostart = $Autostart
+    tray_subsystem = $Subsystem
+    shortcuts = $Shortcuts
   }
 }
 
