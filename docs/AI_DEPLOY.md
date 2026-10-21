@@ -8,6 +8,57 @@
 
 ## 1. 最短流程
 
+直接下载 Release，不需要克隆源码、Go 或 Node。
+
+国内推荐：
+
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://gitee.com/zhenglei410/codex-chinese/raw/master/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource gitee -Mode tray
+```
+
+海外使用：
+
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://raw.githubusercontent.com/zhenglei410/codex-chinese/main/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource github -Mode tray
+```
+
+安装器会自动下载 CLI、托盘、图标和 `SHA256SUMS`，校验后完成安装。
+
+## 2. 前置条件
+
+| 工具 | 要求 | 缺失时 |
+|---|---|---|
+| PowerShell | Windows PowerShell 5.1+ | 使用系统自带版本 |
+| Codex | 已安装并至少启动过一次 | 先启动 Codex |
+| Release | `v2.0.7` 已发布 | 改用源码构建流程 |
+
+Release 安装不需要 Git、Go、Node 或 Visual C++ 运行库。
+
+## 3. Release 安装器做了什么
+
+1. 从 Gitee 或 GitHub Release 下载当前架构的 CLI、托盘和图标。
+2. 下载 `SHA256SUMS` 并校验全部文件。
+3. 停止旧安装目录中的托盘和 supervisor。
+4. 安装到 `%LOCALAPPDATA%\Programs\codex-chinese`。
+5. 创建桌面与开始菜单快捷方式。
+6. 写入当前用户登录启动项。
+
+安装完成后重启 Codex，或通过桌面快捷方式启动托盘。
+
+## 4. 源码构建（开发用）
+
+只有修改源码或 Release 不可用时才使用：
+
 ```powershell
 git clone https://gitee.com/zhenglei410/codex-chinese.git
 cd codex-chinese
@@ -15,59 +66,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\ai_deploy.ps1 -Version v2.0.7
 ```
 
-脚本会构建、测试、安装并生成 JSON 报告。
+源码构建需要 Git、Go 1.21+；正式发布前还需要 Node.js 运行 prelude 测试。
 
-默认不会结束当前 Codex。若用户要求立即生效：
-
-```powershell
-Start-Process explorer.exe `
-  -ArgumentList ('"' + "$env:LOCALAPPDATA\Programs\codex-chinese\codex-chinese-tray.exe" + '"')
-```
-
-这会重启一次 Codex。若 AI 运行在 Codex 内，当前工具调用可能中断，必须先告知用户。
-也可以给部署脚本加 `-Start`，效果相同。
-
-## 2. 前置条件
-
-| 工具 | 要求 | 缺失时 |
-|---|---|---|
-| Git | 能克隆 GitHub 仓库 | 用系统包管理器安装 Git |
-| Go | 1.21+ | `winget install GoLang.Go` |
-| Node.js | 18+，用于 prelude 测试 | `winget install OpenJS.NodeJS.LTS` |
-| Codex | 已安装并至少启动过一次 | 先启动 Codex |
-
-Windows 安装器不需要 Visual C++ 运行库；Go 产物为静态编译。
-
-## 3. `ai_deploy.ps1` 做了什么
-
-1. 检查 Go 版本。
-2. 执行 `build.ps1`，生成 6 个 CLI 和 2 个托盘产物。
-3. 执行 `go vet ./...`。
-4. 检测 Node；存在时运行 `test/prelude.test.mjs`。
-5. 检查 8 个产物存在且小于 6 MB。
-6. 生成 `dist/SHA256SUMS`。
-7. 调用 `install_windows.ps1 -AssetDir dist -Mode tray`。
-8. 校验安装文件哈希和登录启动项。
-9. 校验托盘、快捷方式图标和 Windows GUI 子系统。
-10. 输出 `deploy-report.json`。
-
-查看报告：
-
-```powershell
-Get-Content .\deploy-report.json -Raw
-```
-
-必须包含：
-
-```json
-{
-  "ok": true,
-  "version": "v2.0.7",
-  "artifact_count": 8
-}
-```
-
-## 4. 手动等价步骤
+手动等价步骤：
 
 ```powershell
 $env:VERSION = "v2.0.7"

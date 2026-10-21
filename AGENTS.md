@@ -24,7 +24,49 @@ https://github.com/zhenglei410/codex-chinese
 
 ## 2. Windows 标准部署
 
-以下命令应直接执行，不要生成 `.bat`、`.vbs` 或另一套启动器。
+优先直接下载 Release，不要求克隆仓库，也不要求安装 Go 或 Node。
+
+国内推荐：
+
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://gitee.com/zhenglei410/codex-chinese/raw/master/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource gitee -Mode tray
+```
+
+海外使用：
+
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://raw.githubusercontent.com/zhenglei410/codex-chinese/main/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource github -Mode tray
+```
+
+安装器会从对应 Release 下载：
+
+- CLI；
+- 托盘；
+- 应用图标；
+- `SHA256SUMS`。
+
+下载后先校验 SHA256，再安装。成功时必须满足：
+
+- Windows CLI 与托盘安装完成；
+- 快捷方式直接指向 `codex-chinese-tray.exe`；
+- 快捷方式图标指向 `codex-chinese.ico`；
+- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CodexChinese` 指向安装后的托盘。
+
+安装器不主动结束当前正在使用的 Codex。完成安装后重启 Codex，再执行 `-verify`。
+
+### 开发源码构建
+
+仅修改代码或 Release 不可用时使用：
 
 ```powershell
 git clone https://gitee.com/zhenglei410/codex-chinese.git
@@ -32,20 +74,7 @@ cd codex-chinese
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ai_deploy.ps1 -Version v2.0.7
 ```
 
-如果机器没有 Git，先用系统包管理器安装 Git。如果脚本报告缺少 Go，安装
-Go 1.21+ 后重新执行。Node.js 可选；没有 Node 时脚本会跳过 prelude 单元测试，
-但正式提交/发布前应补跑。
-
-脚本成功时必须满足：
-
-- `go vet ./...` 退出码 `0`；
-- `node test/prelude.test.mjs` 输出 `ALL PASS`（安装了 Node 时）；
-- `dist/` 中有 8 个产物；
-- Windows CLI 与托盘安装完成；
-- 快捷方式直接指向 `codex-chinese-tray.exe`；
-- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CodexChinese` 指向安装后的托盘。
-
-`ai_deploy.ps1` 默认只构建和安装，不主动结束当前正在使用的 Codex。
+源码构建需要 Go 1.21+。正式发布前还必须安装 Node.js 并运行 prelude 测试。
 
 ## 3. 让中文立即生效
 

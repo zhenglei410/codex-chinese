@@ -18,8 +18,10 @@
     "git": "required to clone"
   },
   "commands": {
-    "windows_build_install": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\ai_deploy.ps1 -Version v2.0.7",
-    "windows_manual_install": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\install_windows.ps1 -Version v2.0.7 -AssetDir .\\dist -Mode tray",
+    "windows_release_install_gitee": "$installer=Join-Path $env:TEMP 'codex-chinese-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri 'https://gitee.com/zhenglei410/codex-chinese/raw/master/scripts/install_windows.ps1' -OutFile $installer; powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v2.0.7 -ReleaseSource gitee -Mode tray",
+    "windows_release_install_github": "$installer=Join-Path $env:TEMP 'codex-chinese-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/zhenglei410/codex-chinese/main/scripts/install_windows.ps1' -OutFile $installer; powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v2.0.7 -ReleaseSource github -Mode tray",
+    "windows_source_build": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\ai_deploy.ps1 -Version v2.0.7",
+    "windows_local_asset_install": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\install_windows.ps1 -Version v2.0.7 -AssetDir .\\dist -Mode tray",
     "verify": "& \"$env:LOCALAPPDATA\\Programs\\codex-chinese\\codex-chinese.exe\" -verify",
     "diagnose": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\diagnose_windows.ps1"
   },

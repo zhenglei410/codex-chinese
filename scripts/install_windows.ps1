@@ -14,6 +14,8 @@ param(
   [ValidateSet("tray", "cli")][string]$Mode = "tray",
   [string]$InstallDir = "$env:LOCALAPPDATA\Programs\codex-chinese",
   [string]$AssetDir = "",
+  [ValidateSet("github", "gitee")]
+  [string]$ReleaseSource = "github",
   [switch]$NoShortcut,
   [switch]$NoAutostart,
   [switch]$Uninstall
@@ -75,7 +77,15 @@ $iconName = "codex-chinese.ico"
 # 1. 解析版本
 if ($Version -eq "latest") {
   try {
-    $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "codex-chinese-installer" } -TimeoutSec 20
+    if ($ReleaseSource -eq "gitee") {
+      $releases = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$Repo/releases" `
+        -Headers @{ "User-Agent" = "codex-chinese-installer" } -TimeoutSec 20
+      $rel = @($releases) | Select-Object -First 1
+    } else {
+      $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+        -Headers @{ "User-Agent" = "codex-chinese-installer" } -TimeoutSec 20
+    }
+    if (-not $rel.tag_name) { throw "没有可用 Release" }
     $Version = $rel.tag_name
   } catch {
     Write-Host "获取最新版本失败：$($_.Exception.Message)" -ForegroundColor Red
@@ -94,7 +104,8 @@ function Fetch-Asset([string]$Name) {
   if ($AssetDir -and (Test-Path (Join-Path $AssetDir $Name))) {
     Copy-Item (Join-Path $AssetDir $Name) $dest -Force
   } else {
-    $url = "https://github.com/$Repo/releases/download/$Version/$Name"
+    $hostName = if ($ReleaseSource -eq "gitee") { "gitee.com" } else { "github.com" }
+    $url = "https://$hostName/$Repo/releases/download/$Version/$Name"
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 120
   }
   return $dest
@@ -118,7 +129,8 @@ try {
     Copy-Item (Join-Path $AssetDir "SHA256SUMS") $sumsPath -Force; $haveSums = $true
   } else {
     try {
-      Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/$Version/SHA256SUMS" -OutFile $sumsPath -UseBasicParsing -TimeoutSec 60
+      $hostName = if ($ReleaseSource -eq "gitee") { "gitee.com" } else { "github.com" }
+      Invoke-WebRequest -Uri "https://$hostName/$Repo/releases/download/$Version/SHA256SUMS" -OutFile $sumsPath -UseBasicParsing -TimeoutSec 60
       $haveSums = $true
     } catch { $haveSums = $false }
   }

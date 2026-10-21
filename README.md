@@ -74,17 +74,36 @@ Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig
 
 ## Windows 快速部署
 
-### 方式一：给 AI 执行
+### 方式一：给 AI 执行（直接下载 Release）
 
-把仓库链接和下面这句话交给 AI：
+不需要克隆仓库，也不需要安装 Go 或 Node。AI 只需下载发布包并安装。
 
-> 阅读 `https://gitee.com/zhenglei410/codex-chinese/blob/master/AGENTS.md`，
-> 如果 Gitee 不可用则改用 `https://github.com/zhenglei410/codex-chinese/blob/main/AGENTS.md`，
-> 按仓库中的 AI 部署流程完成构建、安装和校验。
+国内推荐：
 
-AI 会读取 `AGENTS.md`，执行 `scripts/ai_deploy.ps1`，并以 `-verify` 退出码 `0` 作为完成标准。
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://gitee.com/zhenglei410/codex-chinese/raw/master/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource gitee -Mode tray
+```
 
-### 方式二：从源码手动安装
+海外使用：
+
+```powershell
+$installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://raw.githubusercontent.com/zhenglei410/codex-chinese/main/scripts/install_windows.ps1" `
+  -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Version v2.0.7 -ReleaseSource github -Mode tray
+```
+
+安装器会下载 Release 中的 CLI、托盘、图标与 `SHA256SUMS`，校验后安装，
+创建快捷方式并配置登录自启。完成后重启 Codex，再执行 `-verify`。
+
+### 方式二：从源码构建并安装（开发用）
 
 需要 Git、Go 1.21+；Node.js 仅用于注入脚本回归测试。
 
@@ -108,12 +127,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 默认不会立刻结束正在运行的 Codex。要让中文立即生效，重启 Codex，或双击桌面
 「Codex 中文」让托盘自动接管。
 
-### 方式三：如果已发布对应 Release
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts\install_windows.ps1 -Version v2.0.7 -Mode tray
-```
+也可以把 `-Version v2.0.7` 改成 `-Version latest`，安装对应源的最新 Release。
 
 ## 校验
 
