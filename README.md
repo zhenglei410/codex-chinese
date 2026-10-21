@@ -8,6 +8,9 @@
 
 原生 MSIX 启动 · 长驻 CDP 注入 · 页面刷新自恢复 · Windows 登录自启
 
+[GitHub](https://github.com/zhenglei410/codex-chinese) ·
+[Gitee 国内推荐](https://gitee.com/zhenglei410/codex-chinese)
+
 [![CI](https://github.com/zhenglei410/codex-chinese/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenglei410/codex-chinese/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -22,6 +25,8 @@
 仓库地址：
 
 ```text
+Gitee（国内推荐）: https://gitee.com/zhenglei410/codex-chinese
+GitHub:
 https://github.com/zhenglei410/codex-chinese
 ```
 
@@ -62,7 +67,8 @@ Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig
 
 把仓库链接和下面这句话交给 AI：
 
-> 阅读 `https://github.com/zhenglei410/codex-chinese/blob/main/AGENTS.md`，
+> 阅读 `https://gitee.com/zhenglei410/codex-chinese/blob/master/AGENTS.md`，
+> 如果 Gitee 不可用则改用 `https://github.com/zhenglei410/codex-chinese/blob/main/AGENTS.md`，
 > 按仓库中的 AI 部署流程完成构建、安装和校验。
 
 AI 会读取 `AGENTS.md`，执行 `scripts/ai_deploy.ps1`，并以 `-verify` 退出码 `0` 作为完成标准。
@@ -72,7 +78,7 @@ AI 会读取 `AGENTS.md`，执行 `scripts/ai_deploy.ps1`，并以 `-verify` 退
 需要 Git、Go 1.21+；Node.js 仅用于注入脚本回归测试。
 
 ```powershell
-git clone https://github.com/zhenglei410/codex-chinese.git
+git clone https://gitee.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 
 powershell -NoProfile -ExecutionPolicy Bypass `

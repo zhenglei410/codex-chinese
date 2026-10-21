@@ -9,7 +9,7 @@
 ## 1. 最短流程
 
 ```powershell
-git clone https://github.com/zhenglei410/codex-chinese.git
+git clone https://gitee.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\ai_deploy.ps1 -Version v2.0.7

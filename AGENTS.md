@@ -6,6 +6,8 @@
 仓库：
 
 ```text
+Gitee（国内推荐）: https://gitee.com/zhenglei410/codex-chinese
+GitHub:
 https://github.com/zhenglei410/codex-chinese
 ```
 
@@ -25,7 +27,7 @@ https://github.com/zhenglei410/codex-chinese
 以下命令应直接执行，不要生成 `.bat`、`.vbs` 或另一套启动器。
 
 ```powershell
-git clone https://github.com/zhenglei410/codex-chinese.git
+git clone https://gitee.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ai_deploy.ps1 -Version v2.0.7
 ```
@@ -81,7 +83,7 @@ PASS
 ## 4. macOS / Linux
 
 ```bash
-git clone https://github.com/zhenglei410/codex-chinese.git
+git clone https://gitee.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 VERSION=v2.0.7 bash build.sh
 go vet ./...
