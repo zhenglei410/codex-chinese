@@ -70,7 +70,10 @@ function makeEnv() {
     Date,
     Array,
     console,
-    setTimeout,
+    // The locale-setting retry loop is intentionally long-lived in a real
+    // renderer. Unit tests have no Codex settings API, so do not keep Node alive
+    // for the full retry window.
+    setTimeout: () => 0,
     clearTimeout,
     // 关掉 50ms 轮询：测试里靠 __STATSIG__ 的 setter 立即生效，
     // 留着轮询只会让进程不退出。

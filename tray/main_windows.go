@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -27,6 +28,8 @@ var (
 	codexArg string
 	portArg  string
 )
+
+var forceRunning atomic.Bool
 
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
@@ -52,6 +55,7 @@ var (
 
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
+	procCreateMutexW     = kernel32.NewProc("CreateMutexW")
 )
 
 const (
@@ -226,6 +230,7 @@ func runCLI(args ...string) (string, error) {
 		return "", fmt.Errorf("未找到 codex-chinese.exe，请与托盘程序放在同一目录")
 	}
 	cmd := exec.Command(cli, withGlobals(args)...)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("CODEX_CHINESE_GUARD_PID=%d", os.Getpid()))
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -258,7 +263,12 @@ func logf(format string, a ...any) {
 }
 
 func doForce() {
-	setTip("codex-chinese：正在强制中文…")
+	if !forceRunning.CompareAndSwap(false, true) {
+		logf("force ignored: another launch is already running")
+		return
+	}
+	defer forceRunning.Store(false)
+	setTip("codex-chinese：正在启动并强制中文…")
 	out, err := runCLI()
 	logf("force: args=[%s] err=%v out=%s", strings.Join(withGlobals(nil), " "), err, out)
 	if err != nil {
@@ -270,8 +280,8 @@ func doForce() {
 		setTip("codex-chinese：失败（详见 %TEMP%\\codex-chinese-tray.log）")
 		return
 	}
-	balloon("已强制中文", "Codex 已切换为中文界面")
-	setTip("codex-chinese：中文已启用")
+	balloon("中文界面已启用", "后台会保持注入；Codex 页面刷新后也会自动恢复")
+	setTip("codex-chinese：中文已启用，后台保持中")
 }
 
 func doDoctor() {
@@ -373,6 +383,17 @@ func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 
 func main() {
 	parseArgs()
+	logf("tray start version=%s pid=%d", version, os.Getpid())
+	mutexName, _ := syscall.UTF16PtrFromString(`Local\CodexChineseTray`)
+	mutex, _, mutexErr := procCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
+	if mutex == 0 {
+		logf("tray mutex create failed")
+		return
+	}
+	if mutexErr == syscall.Errno(183) {
+		logf("tray already running; exit duplicate")
+		return
+	}
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
 
 	className, _ := syscall.UTF16PtrFromString("CodexChineseTrayWindow")
@@ -420,7 +441,7 @@ func main() {
 
 	// 右键菜单
 	gMenu, _, _ = procCreatePopupMenu.Call()
-	itemForce, _ := syscall.UTF16PtrFromString("立即强制中文")
+	itemForce, _ := syscall.UTF16PtrFromString("启动并强制中文")
 	itemDoctor, _ := syscall.UTF16PtrFromString("环境诊断")
 	itemExit, _ := syscall.UTF16PtrFromString("退出")
 	procAppendMenuW.Call(gMenu, mfString, 1, uintptr(unsafe.Pointer(itemForce)))
@@ -428,7 +449,13 @@ func main() {
 	procAppendMenuW.Call(gMenu, mfSeparator, 0, 0)
 	procAppendMenuW.Call(gMenu, mfString, 3, uintptr(unsafe.Pointer(itemExit)))
 
-	balloon("codex-chinese 已启动", "右键托盘图标可强制中文或诊断")
+	balloon("codex-chinese 已启动", "正在等待 Codex 启动并启用中文界面")
+	go func() {
+		// Give Codex's own login startup enough time to settle. The CLI will
+		// then either attach to a debug instance or restart it once with CDP.
+		time.Sleep(6 * time.Second)
+		doForce()
+	}()
 
 	// 消息循环
 	var m msgStruct

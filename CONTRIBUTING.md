@@ -1,41 +1,50 @@
 # 贡献指南
 
-感谢你愿意改进这个项目。
-
-## 仓库地址
-
-https://github.com/zhenglei410/codex-chinese
-
 ## 开发环境
 
-- Go ≥ 1.21
-- 无第三方依赖（硬性要求）
+- Go 1.21+
+- Node.js 18+（prelude 测试）
+- Windows 上验证 MSIX 启动
 
-## 本地验证
+## 修改后必须运行
 
 ```bash
+gofmt -l .
 go vet ./...
+go test ./...
+node test/prelude.test.mjs
 VERSION=dev bash build.sh
-./dist/codex-chinese-<os>-<arch> -version
 ```
 
-## 代码约束
+Windows：
 
-1. **零第三方依赖**：`go.mod` 不允许出现 `require`。禁止引入 `net/http`、`crypto/tls`、
-   第三方 WebSocket / JSON 库。
-2. **控制体积**：单个产物 3–4 MB；超过 6 MB 视为回归。
-3. **平台代码分离**：平台相关代码放进 `*_windows.go` / `*_unix.go`，并加 `//go:build`。
-4. **不碰用户环境**：除 `dist/` 外不写用户目录，不修改 Codex 安装目录。
-5. **不用 UPX**。
+```powershell
+$env:VERSION="dev"
+.\build.ps1
+```
+
+## 架构约束
+
+- `go.mod` 不允许出现 `require`。
+- 跨平台代码必须使用 build tag。
+- Windows 托盘必须编译为 GUI 子系统。
+- 不得创建 `.bat` / `.vbs` 启动器。
+- 不得写死 Codex 版本目录。
+- 不得在 `WindowsApps` 中递归遍历。
+- 必须保留全局 launcher/supervisor 互斥锁。
+- 必须优先复用已有 Codex CDP 实例。
+- 必须保留长驻 supervisor。
+- prelude 包装器必须返回原始对象。
 
 ## 提交 PR
 
-1. Fork 并新建分支。
-2. 按上面的清单自测。
-3. 在 PR 描述里说明改动动机与验证方式。
-4. CI 会在 Windows / macOS / Linux 三平台跑 `go vet` + 构建 + 版本冒烟测试。
+1. 新建分支。
+2. 完成自测。
+3. 描述修改动机、根因和验证证据。
+4. 涉及注入逻辑时附上 `-verify` 输出。
 
-## 适配新版 Codex
+如果没有真实 Windows + Codex 验证，不要声称端到端成功。
 
-如果 Codex 升级后失效，通常是 Statsig 的 Layer/DC 名或键名变了。
-需要定位新的名字并更新 `main.go` 里的 `prelude`，同时在 `docs/ARCHITECTURE.md` 记录。
+## 许可证
+
+提交内容默认按 AGPL-3.0 授权。

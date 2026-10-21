@@ -1,97 +1,168 @@
-﻿# 一键部署并自证（Windows）。供 AI 代理直接运行。
-# 用法： $env:VERSION="v1.0.0"; powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ai_deploy.ps1
-# 输出： JSON 报告 + 写入 deploy-report.json
-$ErrorActionPreference = "Continue"
-Set-Location (Join-Path $PSScriptRoot "..")
+﻿param(
+  [string]$Version = "v2.0.6",
+  [switch]$NoInstall,
+  [switch]$Start
+)
 
-$Version = if ($env:VERSION) { $env:VERSION } else { "dev" }
-$Report = "deploy-report.json"
+$ErrorActionPreference = "Stop"
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Set-Location $Root
+
+$ReportPath = Join-Path $Root "deploy-report.json"
+$Artifacts = @(
+  "dist\codex-chinese-windows-amd64.exe",
+  "dist\codex-chinese-windows-arm64.exe",
+  "dist\codex-chinese-darwin-amd64",
+  "dist\codex-chinese-darwin-arm64",
+  "dist\codex-chinese-linux-amd64",
+  "dist\codex-chinese-linux-arm64",
+  "dist\codex-chinese-tray-windows-amd64.exe",
+  "dist\codex-chinese-tray-windows-arm64.exe"
+)
+
+function Save-Report([hashtable]$Report) {
+  $Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+}
 
 function Fail([string]$Reason) {
-  $o = [ordered]@{ ok = $false; version = $Version; reason = $Reason }
-  $j = $o | ConvertTo-Json -Compress
-  Write-Output $j
-  Set-Content -Path $Report -Value $j -Encoding UTF8
+  $Report = [ordered]@{
+    ok = $false
+    version = $Version
+    reason = $Reason
+    generated_at = (Get-Date).ToString("o")
+  }
+  Save-Report $Report
+  Write-Output ($Report | ConvertTo-Json -Depth 8)
   exit 1
 }
 
-# 1. 检查 Go
-if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-  Fail "go-not-installed: see docs/AI_DEPLOY.md#2"
+$Go = Get-Command go -ErrorAction SilentlyContinue
+if (-not $Go) {
+  Fail "go-not-installed: install Go 1.21+ and retry"
 }
-$GoLine = (go version) 2>$null
-if (-not $GoLine) { Fail "go-not-executable" }
-$GoVer = ($GoLine -split "\s+")[2]
-if ($GoVer -notmatch '^go(\d+)\.(\d+)') { Fail "go-version-unknown: $GoVer" }
-$major = [int]$Matches[1]; $minor = [int]$Matches[2]
-if ($major -lt 1 -or ($major -eq 1 -and $minor -lt 21)) { Fail "go-too-old: $GoVer (need >= 1.21)" }
+$GoVersion = (& go version) 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $GoVersion) {
+  Fail "go-not-executable"
+}
 
-# 2. 构建
 $env:VERSION = $Version
-& (Join-Path $PSScriptRoot "..\build.ps1") | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "build-failed" }
+& (Join-Path $Root "build.ps1")
+if ($LASTEXITCODE -ne 0) {
+  Fail "build-failed"
+}
 
-# 3. 静态检查（先清掉 build.ps1 可能残留的交叉编译环境）
 Remove-Item Env:GOOS -ErrorAction SilentlyContinue
 Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
 Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue
-go vet ./... | Out-Null
-$VetExit = $LASTEXITCODE
-if ($VetExit -ne 0) { Fail "vet-failed" }
 
-# 3.5 注入脚本回归测试（prelude 是内联 JS，go vet 看不到它的逻辑错误）
+& go vet ./...
+if ($LASTEXITCODE -ne 0) {
+  Fail "go-vet-failed"
+}
+
+& go test ./...
+if ($LASTEXITCODE -ne 0) {
+  Fail "go-test-failed"
+}
+
 $PreludeTest = "skipped-no-node"
 if (Get-Command node -ErrorAction SilentlyContinue) {
-  node test/prelude.test.mjs | Out-Null
-  if ($LASTEXITCODE -ne 0) { Fail "prelude-test-failed: run 'node test/prelude.test.mjs'" }
+  & node test\prelude.test.mjs
+  if ($LASTEXITCODE -ne 0) {
+    Fail "prelude-test-failed"
+  }
   $PreludeTest = "pass"
-} else {
-  Write-Host "WARN: 未检测到 node，跳过 test/prelude.test.mjs（建议安装 node >= 18）"
 }
 
-# 4. 校验产物
-$Artifacts = @(
-  @{ target = "windows/amd64"; path = "dist/codex-chinese-windows-amd64.exe" },
-  @{ target = "windows/arm64"; path = "dist/codex-chinese-windows-arm64.exe" },
-  @{ target = "darwin/amd64";  path = "dist/codex-chinese-darwin-amd64" },
-  @{ target = "darwin/arm64";  path = "dist/codex-chinese-darwin-arm64" },
-  @{ target = "linux/amd64";   path = "dist/codex-chinese-linux-amd64" },
-  @{ target = "linux/arm64";   path = "dist/codex-chinese-linux-arm64" },
-  @{ target = "windows/amd64"; path = "dist/codex-chinese-tray-windows-amd64.exe" },
-  @{ target = "windows/arm64"; path = "dist/codex-chinese-tray-windows-arm64.exe" }
-)
-$items = @()
-foreach ($a in $Artifacts) {
-  if (-not (Test-Path $a.path)) { Fail ("missing-artifact: " + $a.path) }
-  $len = (Get-Item $a.path).Length
-  $items += [ordered]@{ target = $a.target; path = $a.path; bytes = $len }
+$ArtifactRows = @()
+foreach ($Path in $Artifacts) {
+  if (-not (Test-Path -LiteralPath $Path)) {
+    Fail "missing-artifact: $Path"
+  }
+  $File = Get-Item -LiteralPath $Path
+  if ($File.Length -gt 6MB) {
+    Fail "artifact-too-large: $Path ($($File.Length) bytes)"
+  }
+  $ArtifactRows += [ordered]@{
+    path = $Path
+    bytes = $File.Length
+    sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
+  }
 }
-if ($items.Count -ne 8) { Fail ("artifact-count: " + $items.Count + " (expect 8: 6 CLI + 2 tray)") }
-
-# 5. 版本自证（用本机 Windows 产物）
-$hostBin = "dist\codex-chinese-windows-amd64.exe"
-if (-not (Test-Path $hostBin)) { $hostBin = "dist\codex-chinese-linux-amd64" }
-$VersionLine = (& $hostBin -version 2>$null | Select-Object -First 1)
-if (-not $VersionLine -or -not $VersionLine.StartsWith("codex-chinese ")) {
-  Fail ("version-check-failed: " + $VersionLine)
+if ($ArtifactRows.Count -ne 8) {
+  Fail "artifact-count: $($ArtifactRows.Count)"
 }
 
-# 6. 环境诊断（2 = 本机无 Codex，属正常）
-& $hostBin -doctor 2>$null | Out-Null
-$DoctorExit = $LASTEXITCODE
-if ($DoctorExit -ne 0 -and $DoctorExit -ne 2) { Fail ("doctor-failed: " + $DoctorExit) }
+$SumLines = foreach ($File in Get-ChildItem -LiteralPath "dist" -File |
+    Where-Object Name -ne "SHA256SUMS" | Sort-Object Name) {
+  $Hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLower()
+  "$Hash  $($File.Name)"
+}
+Set-Content -LiteralPath "dist\SHA256SUMS" -Value $SumLines -Encoding ascii
 
-# 7. 输出报告
-$reportObj = [ordered]@{
+$Install = $null
+if (-not $NoInstall) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass `
+    -File (Join-Path $Root "scripts\install_windows.ps1") `
+    -Version $Version -AssetDir (Join-Path $Root "dist") -Mode tray
+  if ($LASTEXITCODE -ne 0) {
+    Fail "install-failed"
+  }
+
+  $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\codex-chinese"
+  $InstalledCli = Join-Path $InstallDir "codex-chinese.exe"
+  $InstalledTray = Join-Path $InstallDir "codex-chinese-tray.exe"
+  $BuiltCli = Join-Path $Root "dist\codex-chinese-windows-amd64.exe"
+  $BuiltTray = Join-Path $Root "dist\codex-chinese-tray-windows-amd64.exe"
+
+  foreach ($Pair in @(
+      @($BuiltCli, $InstalledCli),
+      @($BuiltTray, $InstalledTray)
+    )) {
+    $BuiltHash = (Get-FileHash -LiteralPath $Pair[0] -Algorithm SHA256).Hash
+    $InstalledHash = (Get-FileHash -LiteralPath $Pair[1] -Algorithm SHA256).Hash
+    if ($BuiltHash -ne $InstalledHash) {
+      Fail "installed-hash-mismatch: $($Pair[1])"
+    }
+  }
+
+  $Autostart = (Get-ItemProperty -LiteralPath `
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+    -ErrorAction SilentlyContinue).CodexChinese
+  if (-not $Autostart -or $Autostart.Trim('"') -ne $InstalledTray) {
+    Fail "autostart-not-configured"
+  }
+
+  $Install = [ordered]@{
+    dir = $InstallDir
+    cli = $InstalledCli
+    tray = $InstalledTray
+    autostart = $Autostart
+  }
+}
+
+$Started = $false
+if ($Start) {
+  $Tray = Join-Path $env:LOCALAPPDATA "Programs\codex-chinese\codex-chinese-tray.exe"
+  Start-Process -FilePath explorer.exe -ArgumentList ('"' + $Tray + '"')
+  $Started = $true
+}
+
+$Report = [ordered]@{
   ok = $true
   version = $Version
-  go_version = $GoVer
-  vet_exit = $VetExit
+  generated_at = (Get-Date).ToString("o")
+  go_version = $GoVersion
   prelude_test = $PreludeTest
-  artifacts = $items
-  doctor_exit = $DoctorExit
-  notes = "doctor_exit=2 means Codex not installed on this machine"
+  artifact_count = $ArtifactRows.Count
+  artifacts = $ArtifactRows
+  install = $Install
+  tray_started = $Started
+  next = if ($Started) {
+    "Codex may restart once. After it reopens run codex-chinese.exe -verify."
+  } else {
+    "Restart Codex after deployment, then run codex-chinese.exe -verify."
+  }
 }
-$json = $reportObj | ConvertTo-Json -Depth 5
-Write-Output $json
-Set-Content -Path $Report -Value $json -Encoding UTF8
+Save-Report $Report
+Write-Output ($Report | ConvertTo-Json -Depth 8)

@@ -6,7 +6,7 @@
 # 用法：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
 #   ... -Mode cli            # 只装命令行版
-#   ... -Version v1.2.0      # 指定版本
+#   ... -Version v2.0.6      # 指定版本
 #   ... -AssetDir .\dist     # 用本地已构建产物（离线）
 #   ... -Uninstall           # 卸载
 param(
@@ -15,6 +15,7 @@ param(
   [string]$InstallDir = "$env:LOCALAPPDATA\Programs\codex-chinese",
   [string]$AssetDir = "",
   [switch]$NoShortcut,
+  [switch]$NoAutostart,
   [switch]$Uninstall
 )
 
@@ -30,13 +31,37 @@ function Get-Arch {
 function Remove-Shortcuts {
   $desktop = [Environment]::GetFolderPath("Desktop")
   $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-  foreach ($p in @((Join-Path $desktop "Codex 中文.lnk"), (Join-Path $startMenu "Codex 中文.lnk"))) {
+  $names = @("Codex 中文.lnk", "Codex 中文（启动）.lnk")
+  foreach ($p in @(
+      (Join-Path $desktop $names[0]), (Join-Path $desktop $names[1]),
+      (Join-Path $startMenu $names[0]), (Join-Path $startMenu $names[1]))) {
     if (Test-Path $p) { Remove-Item $p -Force; Write-Host "已删除快捷方式: $p" }
   }
 }
 
+function Stop-InstalledProcesses {
+  $prefix = $InstallDir.TrimEnd('\') + '\'
+  $processes = Get-CimInstance Win32_Process |
+    Where-Object {
+      $_.Name -match '^codex-chinese.*\.exe$' -and
+      $_.ExecutablePath -and
+      $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+    }
+  foreach ($process in $processes) {
+    try {
+      Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+      Write-Host "已停止旧进程: $($process.Name) pid=$($process.ProcessId)"
+    } catch {
+      throw "无法停止旧进程 $($process.Name) pid=$($process.ProcessId): $($_.Exception.Message)"
+    }
+  }
+  Start-Sleep -Milliseconds 400
+}
+
 if ($Uninstall) {
   Remove-Shortcuts
+  Stop-InstalledProcesses
+  Remove-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "CodexChinese" -ErrorAction SilentlyContinue
   if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force; Write-Host "已删除目录: $InstallDir" }
   Write-Host "卸载完成。Codex 本体未被修改。" -ForegroundColor Green
   exit 0
@@ -53,7 +78,7 @@ if ($Version -eq "latest") {
     $Version = $rel.tag_name
   } catch {
     Write-Host "获取最新版本失败：$($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "可改用 -Version v1.2.0，或用 -AssetDir 指向本地 dist 目录。" -ForegroundColor Yellow
+    Write-Host "可指定 -Version，或用 -AssetDir 指向本地 dist 目录。" -ForegroundColor Yellow
     exit 1
   }
 }
@@ -112,31 +137,52 @@ try {
     Write-Host "未取得 SHA256SUMS，跳过校验（不建议）" -ForegroundColor Yellow
   }
 
-  # 3. 安装
+  # 3. 安装。先停止旧托盘/supervisor，避免正在使用的 exe 无法覆盖。
+  Stop-InstalledProcesses
   Copy-Item $cli (Join-Path $InstallDir "codex-chinese.exe") -Force
   if ($tray) { Copy-Item $tray (Join-Path $InstallDir "codex-chinese-tray.exe") -Force }
   Write-Host "已安装到: $InstallDir" -ForegroundColor Green
 
+  $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+  if ($Mode -eq "tray" -and -not $NoAutostart) {
+    New-Item -Path $runKey -Force | Out-Null
+    $autostartTarget = Join-Path $InstallDir "codex-chinese-tray.exe"
+    Set-ItemProperty -LiteralPath $runKey -Name "CodexChinese" `
+      -Value ('"' + $autostartTarget + '"') -Type String
+    Write-Host "已启用登录后自动启动: $autostartTarget" -ForegroundColor Green
+  } else {
+    Remove-ItemProperty -LiteralPath $runKey -Name "CodexChinese" -ErrorAction SilentlyContinue
+  }
+
   # 4. 快捷方式（直接指向 exe）
   if (-not $NoShortcut) {
+    # Remove stale shortcuts that pointed at an old binary or a fixed Codex
+    # version directory. The tool discovers the current MSIX package at runtime.
+    Remove-Shortcuts
     $target = if ($tray) { Join-Path $InstallDir "codex-chinese-tray.exe" } else { Join-Path $InstallDir "codex-chinese.exe" }
     $ws = New-Object -ComObject WScript.Shell
     $desktop = [Environment]::GetFolderPath("Desktop")
-    $lnk = Join-Path $desktop "Codex 中文.lnk"
-    $sc = $ws.CreateShortcut($lnk)
-    $sc.TargetPath = $target
-    $sc.WorkingDirectory = $InstallDir
-    $sc.IconLocation = "$target,0"
-    $sc.Description = "强制 Codex 中文界面"
-    $sc.Save()
-    Write-Host "已创建桌面快捷方式: $lnk -> $target" -ForegroundColor Green
+    $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
+    foreach ($lnk in @(
+        (Join-Path $desktop "Codex 中文.lnk"),
+        (Join-Path $startMenu "Codex 中文.lnk"))) {
+      $sc = $ws.CreateShortcut($lnk)
+      $sc.TargetPath = $target
+      $sc.WorkingDirectory = $InstallDir
+      $sc.IconLocation = "$target,0"
+      $sc.Description = "强制 Codex 中文界面"
+      $sc.Save()
+      Write-Host "已创建快捷方式: $lnk -> $target" -ForegroundColor Green
+    }
   }
 
   Write-Host ""
   Write-Host "下一步：" -ForegroundColor Cyan
-  Write-Host "  1) 完全退出 Codex（含托盘图标）"
+  Write-Host "  1) 默认已配置登录自启动；重启 Codex 可让中文立即生效"
   if ($Mode -eq "tray") {
-    Write-Host "  2) 双击桌面「Codex 中文」，右键托盘图标 → 立即强制中文"
+    Write-Host "  2) 双击桌面「Codex 中文」；托盘版会自动启动并启用中文"
+    Write-Host "     登录 Windows 后也会自动运行；不需要时在安装时加 -NoAutostart"
   } else {
     Write-Host "  2) 运行: $InstallDir\codex-chinese.exe"
   }

@@ -42,8 +42,18 @@ ls -lh "$OUT"
 
 # 校验和（Windows 用户可用 certutil 校验）
 if command -v sha256sum >/dev/null 2>&1; then
-  ( cd "$OUT" && sha256sum ./* > SHA256SUMS )
+  (
+    cd "$OUT"
+    for file in *; do
+      [ -f "$file" ] && [ "$file" != "SHA256SUMS" ] && sha256sum "$file"
+    done | sort -k2 > SHA256SUMS
+  )
 elif command -v shasum >/dev/null 2>&1; then
-  ( cd "$OUT" && shasum -a 256 ./* > SHA256SUMS )
+  (
+    cd "$OUT"
+    for file in *; do
+      [ -f "$file" ] && [ "$file" != "SHA256SUMS" ] && shasum -a 256 "$file"
+    done | sort -k2 > SHA256SUMS
+  )
 fi
 echo "checksums written to ${OUT}/SHA256SUMS"

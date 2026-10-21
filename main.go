@@ -16,7 +16,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -132,38 +131,68 @@ const prelude = `(function () {
     if (Date.now() - start > 5000) clearInterval(timer);
   }, 50);
   var reloadKey = "codexplus.zhcn.reload";
-  var api = (typeof codexStateCall === "function") ? codexStateCall
-    : ((window.__CODEX_STATE__ && typeof window.__CODEX_STATE__.setSetting === "function")
-      ? function (m, p) { return window.__CODEX_STATE__.setSetting(p.key, p.value); }
-      : null);
-  if (api) {
-    var done = function (v) {
-      try {
-        if (window.sessionStorage.getItem(reloadKey) === JSON.stringify(v)) return;
-        window.sessionStorage.setItem(reloadKey, JSON.stringify(v));
-      } catch (e) {}
-      window.location.reload();
+  function settingApi() {
+    if (typeof codexStateCall === "function") {
+      return function (method, params) { return codexStateCall(method, { params: params }); };
+    }
+    var state = window.__CODEX_STATE__;
+    if (!state) return null;
+    return function (method, params) {
+      if (method === "get-setting" && typeof state.getSetting === "function") {
+        return state.getSetting(params.key);
+      }
+      if (method === "set-setting" && typeof state.setSetting === "function") {
+        return state.setSetting(params.key, params.value);
+      }
+      throw new Error("setting API unavailable");
     };
-    Promise.resolve(api("get-setting", { key: "localeOverride" })).then(function (r) {
-      if (r && r.value === locale) { try { window.sessionStorage.removeItem(reloadKey); } catch (e) {} return; }
-      Promise.resolve(api("set-setting", { key: "localeOverride", value: locale }))
-        .then(function () { done(locale); }).catch(function () {});
-    }).catch(function () {});
   }
+  function reloadForLocale(value) {
+    try {
+      if (window.sessionStorage.getItem(reloadKey) === JSON.stringify(value)) return;
+      window.sessionStorage.setItem(reloadKey, JSON.stringify(value));
+      if (window.sessionStorage.getItem(reloadKey) !== JSON.stringify(value)) return;
+    } catch (e) {
+      return;
+    }
+    window.location.reload();
+  }
+  function syncLocale(attempt) {
+    var delays = [500, 1500, 3000, 6000, 12000, 20000];
+    var api = settingApi();
+    if (!api) {
+      if (attempt < delays.length) setTimeout(function () { syncLocale(attempt + 1); }, delays[attempt]);
+      return;
+    }
+    Promise.resolve(api("get-setting", { key: "localeOverride" })).then(function (r) {
+      if (r && r.value === locale) {
+        try { window.sessionStorage.removeItem(reloadKey); } catch (e) {}
+        return;
+      }
+      return Promise.resolve(api("set-setting", { key: "localeOverride", value: locale }))
+        .then(function () { reloadForLocale(locale); });
+    }).catch(function () {
+      if (attempt < delays.length) setTimeout(function () { syncLocale(attempt + 1); }, delays[attempt]);
+    });
+  }
+  setTimeout(function () { syncLocale(0); }, 1500);
 })();`
 
 // version 由构建时注入：-ldflags "-X main.version=v1.0.0"
 var version = "dev"
 
 var (
-	flagCodex    = flag.String("codex", "", "Codex 可执行文件路径")
-	flagPort     = flag.Int("port", 9229, "CDP 调试端口")
-	flagWait     = flag.Int("wait", 20, "等待端口就绪的秒数")
-	flagNoReload = flag.Bool("no-reload", false, "只注册脚本，不刷新")
-	flagNoLaunch = flag.Bool("no-launch", false, "只注入已开调试端口的实例")
-	flagVersion  = flag.Bool("version", false, "打印版本并退出")
-	flagDoctor   = flag.Bool("doctor", false, "诊断环境并退出（供 AI/CI 校验）")
-	flagVerify   = flag.Bool("verify", false, "校验当前 Codex 是否真的已注入中文（退出码 0=通过）")
+	flagCodex     = flag.String("codex", "", "Codex 可执行文件路径")
+	flagPort      = flag.Int("port", 0, "CDP 调试端口（0=自动在 9229-9258 中选择）")
+	flagWait      = flag.Int("wait", 45, "等待启动和中文校验完成的秒数")
+	flagNoReload  = flag.Bool("no-reload", false, "只注册脚本，不刷新")
+	flagNoLaunch  = flag.Bool("no-launch", false, "只注入已开调试端口的实例")
+	flagNoRestart = flag.Bool("no-restart", false, "已有 Codex 未开调试端口时不自动重启")
+	flagSupervise = flag.Bool("supervise", false, "内部参数：保持 CDP 注入会话")
+	flagGuardPID  = flag.Int("guard-pid", 0, "内部参数：托盘进程 PID")
+	flagVersion   = flag.Bool("version", false, "打印版本并退出")
+	flagDoctor    = flag.Bool("doctor", false, "诊断环境并退出（供 AI/CI 校验）")
+	flagVerify    = flag.Bool("verify", false, "校验当前 Codex 是否真的已注入中文（退出码 0=通过）")
 )
 
 func main() {
@@ -177,75 +206,100 @@ func main() {
 		return
 	}
 	if *flagVerify {
-		os.Exit(runVerify(*flagPort))
+		os.Exit(runVerify(resolveExistingPort()))
+	}
+	if *flagSupervise {
+		exe := findCodex()
+		if exe == "" || *flagPort <= 0 {
+			return
+		}
+		runSupervisor(*flagPort, exe, *flagGuardPID)
+		return
 	}
 	fmt.Println("== 强制 Codex 中文界面 ==")
+	releaseLaunch, acquiredLaunch := acquireLaunchLock()
+	if !acquiredLaunch {
+		fmt.Println("另一个 Codex 中文启动任务正在进行，请稍候。")
+		os.Exit(1)
+	}
+	defer releaseLaunch()
 
-	if !*flagNoLaunch && !endpointReady(*flagPort) {
-		exe := findCodex()
-		if exe == "" {
-			explainCodexMissing()
+	exe := findCodex()
+	if exe == "" {
+		explainCodexMissing()
+		os.Exit(1)
+	}
+
+	port, err := choosePort(*flagPort)
+	if err != nil {
+		fmt.Println("选择调试端口失败:", err)
+		os.Exit(1)
+	}
+	_ = savePort(port)
+	fmt.Printf("调试端口: %d\n", port)
+
+	if !endpointReady(port) {
+		if *flagNoLaunch {
+			fmt.Printf("调试端口 %d 未就绪；-no-launch 不会启动 Codex。\n", port)
 			os.Exit(1)
 		}
+		ids := codexProcessIDs(exe)
+		if len(ids) > 0 {
+			if *flagNoRestart {
+				fmt.Printf("检测到 Codex 已在运行（PID %v），但未开放调试端口。\n", ids)
+				fmt.Println("请完全退出 Codex 后重试，或去掉 -no-restart 允许本程序自动重启。")
+				os.Exit(1)
+			}
+			fmt.Printf("检测到 Codex 已在运行但未开放调试端口，正在重启（PID %v）。\n", ids)
+			terminated, err := terminateCodexProcesses(exe)
+			if err != nil {
+				fmt.Println("重启 Codex 失败:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("已结束 Codex 进程: %v\n", terminated)
+			deadline := time.Now().Add(12 * time.Second)
+			for len(codexProcessIDs(exe)) > 0 && time.Now().Before(deadline) {
+				time.Sleep(250 * time.Millisecond)
+			}
+			if len(codexProcessIDs(exe)) > 0 {
+				fmt.Println("Codex 未在限定时间内完全退出，无法安全重新启动。")
+				os.Exit(1)
+			}
+		}
 		fmt.Println("启动 Codex:", exe)
-		cmd := exec.Command(exe, fmt.Sprintf("--remote-debugging-port=%d", *flagPort))
-		cmd.Stdout, cmd.Stderr = nil, nil
-		applyDetach(cmd)
-		if err := cmd.Start(); err != nil {
+		if err := launchCodex(exe, port); err != nil {
 			fmt.Println("启动失败:", err)
 			os.Exit(1)
 		}
-		_ = cmd.Process.Release()
-	}
-
-	deadline := time.Now().Add(time.Duration(*flagWait) * time.Second)
-	for !endpointReady(*flagPort) {
-		if time.Now().After(deadline) {
-			fmt.Printf("等待调试端口 %d 超时。\n", *flagPort)
-			fmt.Println("如果 Codex 已在运行（含托盘），请先完全退出再试。")
-			os.Exit(1)
+		deadline := time.Now().Add(time.Duration(*flagWait) * time.Second)
+		for !endpointReady(port) {
+			if time.Now().After(deadline) {
+				fmt.Printf("等待调试端口 %d 超时。\n", port)
+				fmt.Printf("Codex 进程仍在运行: %v\n", codexProcessIDs(exe))
+				if err := openCodexFallback(exe); err != nil {
+					fmt.Println("恢复打开 Codex 也失败:", err)
+				} else {
+					fmt.Println("已退回普通方式重新打开 Codex；本次未启用调试端口。")
+				}
+				os.Exit(1)
+			}
+			time.Sleep(300 * time.Millisecond)
 		}
-		time.Sleep(300 * time.Millisecond)
 	}
 
-	target, err := pickTarget(*flagPort)
+	if err := startSupervisor(exe, port, *flagNoReload); err != nil {
+		fmt.Println("启动长驻注入会话失败:", err)
+		os.Exit(1)
+	}
+	status, err := waitForInjection(port, time.Duration(*flagWait)*time.Second)
 	if err != nil {
-		fmt.Println("获取页面目标失败:", err)
+		fmt.Println("中文注入未通过校验:", err)
+		fmt.Println("详情见:", supervisorLogPath())
 		os.Exit(1)
 	}
-	fmt.Println("注入目标:", target.URL)
-
-	ws, err := dialWS(target.WSURL)
-	if err != nil {
-		fmt.Println("连接调试通道失败:", err)
-		os.Exit(1)
-	}
-	defer ws.Close()
-
-	if _, err := ws.call(1, "Page.enable", map[string]any{}); err != nil {
-		fmt.Println("Page.enable 失败:", err)
-		os.Exit(1)
-	}
-	if _, err := ws.call(2, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": prelude}); err != nil {
-		fmt.Println("注入失败:", err)
-		os.Exit(1)
-	}
-	fmt.Println("已注册注入脚本（对后续所有页面生效）。")
-
-	if !*flagNoReload {
-		if _, err := ws.call(3, "Page.reload", map[string]any{}); err != nil {
-			fmt.Println("刷新失败:", err)
-			os.Exit(1)
-		}
-		// 关键：注册的脚本与 CDP 会话同生命周期。必须等新文档真正执行完 prelude
-		// 再断开，否则脚本会在加载前被撤销，注入等于没做。
-		if waitInjected(ws, 15*time.Second) {
-			fmt.Println("注入已生效（页面已加载）。")
-		} else {
-			fmt.Println("警告：页面中未检测到注入标记，请运行 -verify 复查。")
-		}
-	}
-	fmt.Println("完成：Codex 已强制中文。")
+	fmt.Printf("长驻注入已生效: installed=%t lang=%s i18n=%s html=%s\n",
+		status.Installed, status.Lang, status.I18n, status.HTMLLang)
+	fmt.Println("完成：Codex 已强制中文；后台会保持注入并在页面刷新后恢复。")
 }
 
 // 轮询页面，确认 prelude 已经真正执行（注入标记出现）。
@@ -275,56 +329,24 @@ func waitInjected(ws *wsConn, timeout time.Duration) bool {
 
 // ---------------- 注入结果校验（供 AI 部署 / 用户自检） ----------------
 // 在页面里读取注入标记、navigator 语言与 Statsig 的 enable_i18n。
-const verifyExpr = `(function(){try{var r=window.__STATSIG__,i18n=null;try{var c=r&&(r.firstInstance||(typeof r.instance==="function"?r.instance():null));if(c&&c.getLayer){var l=c.getLayer("72216192",{disableExposureLog:true});i18n=l?String(l.get("enable_i18n",false)):"layer-undefined";}}catch(e){i18n="err";}return JSON.stringify({installed:!!window.__codexPlusForceZhInstalled,lang:String(navigator.language||""),i18n:i18n});}catch(e){return JSON.stringify({installed:false,lang:"",i18n:"err"});}})()`
+const verifyExpr = `(function(){try{var r=window.__STATSIG__,i18n=null;try{var c=r&&(r.firstInstance||(typeof r.instance==="function"?r.instance():null));if(c&&c.getLayer){var l=c.getLayer("72216192",{disableExposureLog:true});i18n=l?String(l.get("enable_i18n",false)):"layer-undefined";}}catch(e){i18n="err";}return JSON.stringify({installed:!!window.__codexPlusForceZhInstalled,lang:String(navigator.language||""),i18n:i18n,htmlLang:String((document.documentElement&&document.documentElement.lang)||"")});}catch(e){return JSON.stringify({installed:false,lang:"",i18n:"err",htmlLang:""});}})()`
 
 // 退出码：0=已注入且语言为中文；1=未通过；2=无法连接（未开调试端口/Codex 未运行）
 func runVerify(port int) int {
-	if !endpointReady(port) {
-		fmt.Printf("verify: cdp not-ready (127.0.0.1:%d)\n", port)
-		fmt.Println("FAIL: Codex 未以调试端口启动，或已完全退出")
-		return 2
-	}
-	t, err := pickTarget(port)
+	v, err := inspectInjection(port)
 	if err != nil {
-		fmt.Println("verify: target error:", err)
+		if strings.Contains(err.Error(), "cdp not-ready") {
+			fmt.Printf("verify: cdp not-ready (127.0.0.1:%d)\n", port)
+			fmt.Println("FAIL: Codex 未以调试端口启动，或已完全退出")
+			return 2
+		}
+		fmt.Println("verify: target/evaluate error:", err)
 		return 2
 	}
-	ws, err := dialWS(t.WSURL)
-	if err != nil {
-		fmt.Println("verify: connect error:", err)
-		return 2
-	}
-	defer ws.Close()
-
-	res, err := ws.call(900, "Runtime.evaluate", map[string]any{
-		"expression":    verifyExpr,
-		"returnByValue": true,
-	})
-	if err != nil {
-		fmt.Println("verify: evaluate error:", err)
-		return 2
-	}
-	var wrap struct {
-		Result struct {
-			Value string `json:"value"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(res, &wrap); err != nil {
-		fmt.Println("verify: parse error:", err)
-		return 2
-	}
-	var v struct {
-		Installed bool   `json:"installed"`
-		Lang      string `json:"lang"`
-		I18n      string `json:"i18n"`
-	}
-	if err := json.Unmarshal([]byte(wrap.Result.Value), &v); err != nil {
-		fmt.Println("verify: parse payload error:", err)
-		return 2
-	}
-	fmt.Printf("verify: installed=%t lang=%s i18n=%s\n", v.Installed, v.Lang, v.I18n)
-	ok := v.Installed && strings.HasPrefix(strings.ToLower(v.Lang), "zh")
-	if ok && v.I18n == "false" {
+	fmt.Printf("verify: installed=%t lang=%s i18n=%s html=%s\n",
+		v.Installed, v.Lang, v.I18n, v.HTMLLang)
+	ok := injectionOK(v)
+	if v.Installed && strings.HasPrefix(strings.ToLower(v.Lang), "zh") && v.I18n == "false" {
 		// 标记在、语言对，但图层里的开关仍是 false：说明补丁没作用到 Layer 上，
 		// Codex 依然会按英文渲染。这是"注入了但没汉化"的典型形态。
 		fmt.Println("FAIL: enable_i18n 仍为 false，补丁未覆盖 Statsig 图层")
@@ -334,14 +356,15 @@ func runVerify(port int) int {
 		fmt.Println("PASS")
 		return 0
 	}
-	fmt.Println("FAIL: 未检测到注入标记或语言不是中文")
+	fmt.Println("FAIL: 未检测到注入标记、语言不是中文，或页面语言状态异常")
 	return 1
 }
 
 // ---------------- 环境诊断（供 AI 部署 / CI 校验） ----------------
 func runDoctor() {
 	exe := findCodex()
-	ready := endpointReady(*flagPort)
+	port := resolveExistingPort()
+	ready := endpointReady(port)
 	fmt.Printf("version: %s\n", version)
 	fmt.Printf("platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	if exe == "" {
@@ -361,9 +384,9 @@ func runDoctor() {
 		fmt.Printf("codex: %s\n", exe)
 	}
 	if ready {
-		fmt.Printf("cdp: ready (127.0.0.1:%d)\n", *flagPort)
+		fmt.Printf("cdp: ready (127.0.0.1:%d)\n", port)
 	} else {
-		fmt.Printf("cdp: not-ready (127.0.0.1:%d)\n", *flagPort)
+		fmt.Printf("cdp: not-ready (127.0.0.1:%d)\n", port)
 	}
 	if exe == "" && !ready {
 		os.Exit(2)
@@ -591,6 +614,89 @@ func httpGet(port int, path string) ([]byte, error) {
 func endpointReady(port int) bool {
 	_, err := httpGet(port, "/json/version")
 	return err == nil
+}
+
+func portAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+func isCodexEndpoint(port int) bool {
+	if !endpointReady(port) {
+		return false
+	}
+	t, err := pickTarget(port)
+	if err != nil {
+		return false
+	}
+	u := strings.ToLower(t.URL)
+	return strings.Contains(u, "app://") || strings.Contains(u, "index.html")
+}
+
+func choosePort(requested int) (int, error) {
+	if requested > 0 {
+		if isCodexEndpoint(requested) || portAvailable(requested) {
+			return requested, nil
+		}
+		return 0, fmt.Errorf("端口 %d 已被其他程序占用", requested)
+	}
+	// Always reuse a Codex instance that is already under control. Otherwise a
+	// second invocation can choose a lower free port, kill the healthy instance,
+	// and leave two supervisors fighting over different ports.
+	for port := 9229; port <= 9258; port++ {
+		if isCodexEndpoint(port) {
+			return port, nil
+		}
+	}
+	if saved := loadPort(); saved > 0 && portAvailable(saved) {
+		return saved, nil
+	}
+	for port := 9229; port <= 9258; port++ {
+		if portAvailable(port) {
+			return port, nil
+		}
+	}
+	return 0, errors.New("9229-9258 没有可用调试端口")
+}
+
+func portStatePath() string {
+	return filepath.Join(os.TempDir(), "codex-chinese-port.txt")
+}
+
+func savePort(port int) error {
+	return os.WriteFile(portStatePath(), []byte(strconv.Itoa(port)), 0o600)
+}
+
+func loadPort() int {
+	data, err := os.ReadFile(portStatePath())
+	if err != nil {
+		return 0
+	}
+	port, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	if port > 0 && port <= 65535 {
+		return port
+	}
+	return 0
+}
+
+func resolveExistingPort() int {
+	if *flagPort > 0 {
+		return *flagPort
+	}
+	if port := loadPort(); port > 0 && isCodexEndpoint(port) {
+		return port
+	}
+	for port := 9229; port <= 9258; port++ {
+		if isCodexEndpoint(port) {
+			return port
+		}
+	}
+	// Preserve the historical diagnostic port in failure messages.
+	return 9229
 }
 
 // ---------------- 目标选择 ----------------

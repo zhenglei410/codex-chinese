@@ -1,127 +1,68 @@
 {
-  "name": "codex-chinese",
-  "version": "1.3.0",
-  "description": "Force the Codex desktop app to use its built-in zh-CN interface, even when Statsig/VPN is unreachable.",
-  "license": "AGPL-3.0-only",
-  "ai_entry": "AGENTS.md",
-  "ai_deploy_spec": "docs/AI_DEPLOY.md",
-  "language": "go",
-  "min_go_version": "1.21",
-  "third_party_dependencies": [],
-  "build": {
-    "command_unix": "VERSION=${VERSION:-dev} bash build.sh",
-    "command_windows": "powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1",
-    "env": { "CGO_ENABLED": "0" },
-    "flags": ["-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version=<version>"],
-    "output_dir": "dist"
+  "schema_version": 2,
+  "project": "codex-chinese",
+  "version": "v2.0.6",
+  "repository": "https://github.com/zhenglei410/codex-chinese",
+  "primary_platform": "windows",
+  "agent_entrypoint": "AGENTS.md",
+  "human_guide": "docs/AI_DEPLOY.md",
+  "architecture": "docs/ARCHITECTURE.md",
+  "troubleshooting": "docs/TROUBLESHOOTING.md",
+  "requirements": {
+    "go": ">=1.21",
+    "node": ">=18 optional but required before release",
+    "git": "required to clone"
+  },
+  "commands": {
+    "windows_build_install": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\ai_deploy.ps1 -Version v2.0.6",
+    "windows_manual_install": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\install_windows.ps1 -Version v2.0.6 -AssetDir .\\dist -Mode tray",
+    "verify": "& \"$env:LOCALAPPDATA\\Programs\\codex-chinese\\codex-chinese.exe\" -verify",
+    "diagnose": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\diagnose_windows.ps1"
   },
   "artifacts": [
-    { "target": "windows/amd64", "path": "dist/codex-chinese-windows-amd64.exe", "size_bytes_approx": 3745280 },
-    { "target": "windows/arm64", "path": "dist/codex-chinese-windows-arm64.exe", "size_bytes_approx": 3442176 },
-    { "target": "darwin/amd64",  "path": "dist/codex-chinese-darwin-amd64",      "size_bytes_approx": 3594720 },
-    { "target": "darwin/arm64",  "path": "dist/codex-chinese-darwin-arm64",      "size_bytes_approx": 3399986 },
-    { "target": "linux/amd64",   "path": "dist/codex-chinese-linux-amd64",       "size_bytes_approx": 3551392 },
-    { "target": "linux/arm64",   "path": "dist/codex-chinese-linux-arm64",       "size_bytes_approx": 3408032 },
-    { "target": "windows/amd64", "path": "dist/codex-chinese-tray-windows-amd64.exe", "size_bytes_approx": 2037248, "variant": "tray", "pe_subsystem": 2 },
-    { "target": "windows/arm64", "path": "dist/codex-chinese-tray-windows-arm64.exe", "size_bytes_approx": 1915904, "variant": "tray", "pe_subsystem": 2 }
+    "dist/codex-chinese-windows-amd64.exe",
+    "dist/codex-chinese-windows-arm64.exe",
+    "dist/codex-chinese-darwin-amd64",
+    "dist/codex-chinese-darwin-arm64",
+    "dist/codex-chinese-linux-amd64",
+    "dist/codex-chinese-linux-arm64",
+    "dist/codex-chinese-tray-windows-amd64.exe",
+    "dist/codex-chinese-tray-windows-arm64.exe"
   ],
-  "validate": {
-    "commands": [
-      "go vet ./...",
-      "node test/prelude.test.mjs",
-      "./dist/codex-chinese-<goos>-<goarch> -version",
-      "./dist/codex-chinese-<goos>-<goarch> -doctor"
+  "install_paths": {
+    "cli": "%LOCALAPPDATA%\\Programs\\codex-chinese\\codex-chinese.exe",
+    "tray": "%LOCALAPPDATA%\\Programs\\codex-chinese\\codex-chinese-tray.exe",
+    "desktop_shortcut": "%USERPROFILE%\\Desktop\\Codex 中文.lnk",
+    "autostart_registry": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "autostart_value": "CodexChinese"
+  },
+  "success": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "verify: installed=true lang=zh-CN i18n=true",
+      "PASS"
     ],
-    "version_expect_prefix": "codex-chinese ",
-    "doctor_exit_ok": 0,
-    "doctor_exit_no_codex": 2,
-    "prelude_test_expect_stdout_contains": "ALL PASS"
-  },
-  "install_windows": {
-    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_windows.ps1",
-    "offline_option": "-AssetDir .\\dist",
-    "shortcut_rule": "shortcut TargetPath MUST be codex-chinese*.exe; never wscript.exe/cmd.exe/.vbs/.bat"
-  },
-  "diagnose_windows": {
-    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/diagnose_windows.ps1",
-    "try_launch_option": "-TryLaunch",
-    "when": "-doctor prints 'codex: not-found' or 'cdp: not-ready'",
-    "note": "Prints OS, MSIX package path, aliases, running processes, CDP port, and with -TryLaunch a real launch test. Ask the user to paste the whole output."
-  },
-  "verify": {
-    "command": "./dist/codex-chinese-<goos>-<goarch> -verify",
-    "success_exit_code": 0,
-    "success_stdout_contains": "PASS",
-    "success_stdout_shape": "verify: installed=true lang=zh-CN i18n=true",
-    "failure_modes": {
-      "exit_1_installed_false": "running but not injected (e.g. shortcut bypasses codex-chinese.exe)",
-      "exit_1_i18n_false": "marker present but patch missed the Statsig layer; upgrade to v1.2.0+",
-      "exit_2": "no CDP port; Codex not launched with --remote-debugging-port or already exited"
-    }
-  },
-  "run": {
-    "command": "./dist/codex-chinese-<goos>-<goarch>",
-    "requires": "Codex desktop app installed; user must fully quit Codex first",
-    "notes": "Launches Codex with --remote-debugging-port, injects a prelude over CDP, then reloads once.",
-    "tray_windows": "./dist/codex-chinese-tray-windows-amd64.exe (requires codex-chinese.exe in the same directory)"
-  },
-  "golden_path": {
-    "summary": "Run codex-chinese*.exe directly so it launches Codex with --remote-debugging-port, inject, then require -verify exit code 0. Never wrap it in a launcher script.",
-    "do": [
-      "install via scripts/install_windows.ps1 or the release binary",
-      "point every shortcut TargetPath at codex-chinese.exe or codex-chinese-tray.exe",
-      "fully quit Codex (including tray icon) before running — Electron is single-instance and a second process would just hand over its args and exit",
-      "run -doctor first and confirm the 'codex:' line shows a real path (MSIX store builds resolve via registry)",
-      "require -verify exit code 0 and a stdout line 'verify: installed=true lang=zh-CN i18n=true'",
-      "tell the user how to use it after deploy (see post_deploy)"
-    ],
-    "do_not": [
-      "create .vbs or .bat launchers",
-      "create shortcuts whose TargetPath is wscript.exe or cmd.exe",
-      "treat '完成：Codex 已强制中文', a running process, or the presence of a shortcut as success",
-      "launch Codex manually before injecting (the debug port would not be open)",
-      "drop the CDP session before the reloaded page has executed the prelude",
-      "hardcode a WindowsApps versioned path such as OpenAI.Codex_26.1013.4894.0_x64__2p2nqsd0c76g0 (the version changes on every update)",
-      "scan WindowsApps with glob/find (the directory is not listable by normal users)"
+    "also_require": [
+      "8 artifacts",
+      "go vet exit 0",
+      "prelude test ALL PASS when Node is installed",
+      "tray subsystem 2",
+      "desktop shortcut targets codex-chinese-tray.exe"
     ]
   },
-  "self_heal": {
-    "enabled": true,
-    "policy": "On any failure: collect evidence, locate root cause, fix the code, re-verify, then report. Never bounce a raw error back to the user and never fake a PASS.",
-    "playbook": "AGENTS.md section 6 (AI self-healing playbook)",
-    "collect_first": [
-      "codex-chinese -doctor",
-      "codex-chinese -verify",
-      "powershell -File scripts/diagnose_windows.ps1 -TryLaunch",
-      "%TEMP%\\codex-chinese-tray.log (tray scenarios)"
-    ],
-    "must_self_verify": [
-      "gofmt -l . prints nothing",
-      "go vet ./... exits 0",
-      "node test/prelude.test.mjs prints ALL PASS",
-      "build produces 8 artifacts",
-      "codex-chinese -doctor prints a real codex path or exits 0",
-      "codex-chinese -verify exits 0"
-    ],
-    "ask_user_before": [
-      "killing an app the user is currently running (e.g. their Codex)",
-      "git push, tagging, or creating a release",
-      "modifying user environment, registry, or the Codex install directory"
-    ]
+  "runtime": {
+    "mode": "persistent-supervisor",
+    "default_port_range": "9229-9258",
+    "guard_process": "Windows tray",
+    "autostart": true,
+    "force_reload_on_start": false
   },
-  "post_deploy": {
-    "must_tell_user_how_to_use": true,
-    "required_points": [
-      "artifact location under dist/ and which file to use on this platform",
-      "how to start: Windows tray exe (right-click -> force Chinese) or CLI exe; macOS/Linux CLI",
-      "prerequisite: fully quit Codex including tray icon before running",
-      "success marker: -verify exits 0 with a line 'verify: installed=true lang=zh-CN i18n=true' (the printed line '完成：Codex 已强制中文' is NOT a success marker)",
-      "common flags: -codex, -port, -no-launch, -doctor",
-      "reminder: re-run after each Codex restart, or keep the tray app running",
-      "troubleshooting: port timeout, macOS quarantine, Windows SmartScreen",
-      "verification: run codex-chinese -verify and require exit code 0 (PASS) before claiming success",
-      "the PASS line must read i18n=true; installed=true with i18n=false means the patch missed the layer"
-    ],
-    "user_message_template": "部署完成 ✅ Windows 推荐用 scripts/install_windows.ps1 安装（或双击 codex-chinese-tray-windows-amd64.exe，与 codex-chinese.exe 放同一目录）。使用前请先完全退出 Codex（含托盘图标），再右键托盘图标选「立即强制中文」。用 codex-chinese.exe -verify 校验，输出 verify: installed=true lang=zh-CN i18n=true 且 PASS 才算成功。每次重启 Codex 后需再执行一次。"
-  }
+  "forbidden": [
+    "create .bat or .vbs launchers",
+    "write a fixed WindowsApps version path",
+    "traverse WindowsApps to find Codex",
+    "run multiple supervisors on different ports",
+    "force Page.reload during Codex bootstrap",
+    "claim success without -verify exit code 0"
+  ]
 }

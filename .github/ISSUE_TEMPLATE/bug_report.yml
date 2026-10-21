@@ -6,7 +6,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        请先运行 `codex-chinese -doctor` 并把输出贴在这里，能大幅加快定位。
+        请先运行：
+
+        ```powershell
+        codex-chinese.exe -doctor
+        codex-chinese.exe -verify
+        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1
+        ```
+
+        请勿粘贴 API Key、令牌、对话内容或其他敏感信息。
   - type: input
     id: os
     attributes:
@@ -26,9 +34,10 @@ body:
     attributes:
       label: 复现步骤
       placeholder: |
-        1. 完全退出 Codex
-        2. 运行 codex-chinese
-        3. ...
+        1. 运行 scripts\ai_deploy.ps1
+        2. 启动托盘或重启 Codex
+        3. 运行 codex-chinese.exe -verify
+        4. ...
     validations:
       required: true
   - type: textarea
@@ -40,6 +49,6 @@ body:
   - type: textarea
     id: actual
     attributes:
-      label: 实际结果（含报错输出）
+      label: 实际结果（含 -verify 输出和日志）
     validations:
       required: true

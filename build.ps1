@@ -45,3 +45,13 @@ finally {
 
 Write-Host "--- sizes ---"
 Get-ChildItem $Out | Format-Table Name, Length
+
+$sumFiles = Get-ChildItem -LiteralPath $Out -File |
+  Where-Object Name -ne "SHA256SUMS" |
+  Sort-Object Name
+$sumLines = foreach ($file in $sumFiles) {
+  $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLower()
+  "$hash  $($file.Name)"
+}
+Set-Content -LiteralPath (Join-Path $Out "SHA256SUMS") -Value $sumLines -Encoding ascii
+Write-Host "checksums written to $Out/SHA256SUMS"

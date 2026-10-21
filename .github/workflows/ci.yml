@@ -26,24 +26,30 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Go tests
+        run: go test ./...
+
       - name: Prelude regression tests
-        shell: bash
         run: node test/prelude.test.mjs
 
-      - name: Build (unix)
-        if: runner.os != 'Windows'
-        run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w" -o dist/codex-chinese .
-
-      - name: Build (windows)
+      - name: Build Windows artifacts
         if: runner.os == 'Windows'
-        run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w" -o dist/codex-chinese.exe .
-        shell: bash
-
-      - name: Version smoke test
-        shell: bash
+        shell: powershell
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./dist/codex-chinese.exe -version
-          else
-            ./dist/codex-chinese -version
-          fi
+          $env:VERSION = "ci"
+          .\build.ps1
+
+      - name: Build Unix artifacts
+        if: runner.os != 'Windows'
+        run: VERSION=ci bash build.sh
+
+      - name: Version smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\dist\codex-chinese-windows-amd64.exe -version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Version smoke test (Unix)
+        if: runner.os != 'Windows'
+        run: ./dist/codex-chinese-$(go env GOOS)-$(go env GOARCH) -version

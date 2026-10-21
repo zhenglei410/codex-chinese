@@ -1,141 +1,197 @@
-# 原理与架构
+# 架构与原理
 
 ## 1. 问题
 
-Codex 桌面应用内置了 `zh-CN` 语言包，但"是否启用"由 Statsig 特性开关控制：
+Codex 桌面应用内置中文语言包，但 i18n 由 Statsig 配置控制：
 
-- Layer / DynamicConfig 名：`72216192`
-- 关键键：`enable_i18n`（是否启用 i18n）、`locale_source`（语言来源）
-
-当 Statsig 或 VPN 不可达时，这两个键取不到服务端下发的值，应用按默认（false）处理，
-于是即使设置里选了中文，界面仍回退英文。
-
-**结论：只改配置文件解决不了问题**——配置文件能指定语言，但关不掉"开关取不到就回退"的逻辑。
-必须在运行时让那个开关返回 `true`。
-
-## 2. 为什么必须是"主世界注入"
-
-| 方案 | 结果 | 原因 |
-|---|---|---|
-| 改配置文件 / 设置项 | ❌ | 无法覆盖 Statsig 的运行时回退 |
-| 往 `app.asar` 塞 preload | ❌ | `contextIsolation` 下 preload 在隔离世界，访问不到页面的 `window.__STATSIG__` |
-| 浏览器扩展 content script | ❌ | 打包 Electron 默认不加载外部扩展；且默认在隔离世界 |
-| **CDP `Page.addScriptToEvaluateOnNewDocument`** | ✅ | 在**主世界**、**页面脚本之前**执行，能拦截 Statsig 初始化 |
-
-## 3. 数据流
-
-```
-┌──────────────┐   1. spawn --remote-debugging-port=9229
-│ codex-chinese│ ────────────────────────────────────────► Codex (Electron)
-│   (Go)       │
-│              │   2. GET /json  (HTTP, 127.0.0.1)
-│              │ ◄────────────────────────────────────────  [{type:"page", webSocketDebuggerUrl}]
-│              │
-│              │   3. WebSocket 连接 webSocketDebuggerUrl
-│              │   4. Page.enable
-│              │   5. Page.addScriptToEvaluateOnNewDocument { source: prelude }
-│              │   6. Page.reload
-└──────────────┘
-                              │
-                              ▼ 页面重新加载，prelude 先于应用脚本执行
-                   ┌─────────────────────────────────────┐
-                   │ prelude (主世界)                     │
-                   │ ① navigator.language = "zh-CN"       │
-                   │ ② 拦截 window.__STATSIG__ 赋值        │
-                   │ ③ wrap getLayer/getDynamicConfig     │
-                   │    → "72216192" 返回                  │
-                   │      enable_i18n: true                │
-                   │      locale_source: "SYSTEM"          │
-                   │ ④ localeOverride = "zh-CN" → reload   │
-                   └─────────────────────────────────────┘
+```text
+Layer / DynamicConfig: 72216192
+enable_i18n: true
+locale_source: SYSTEM
 ```
 
-### 3.1 一个必须知道的坑：注入脚本与会话同生命周期
+远程配置不可用时，应用可能得到 `enable_i18n=false` 并回退英文。
+只改普通设置不足以覆盖运行时回退，因此需要注入渲染进程主世界。
 
-`Page.addScriptToEvaluateOnNewDocument` 注册的脚本**绑定在当前的 CDP 会话上**。
-一旦 WebSocket 断开，注册立即失效。
+## 2. 总体数据流
 
-所以"注册完 → `Page.reload` → 立刻 `ws.Close()`"这个看似理所当然的顺序是**错的**：
-刷新触发的新文档还没来得及执行 prelude，脚本就被撤销了，结果**什么都没注入**，
-而进程退出码依然是 0。
+```text
+codex-chinese.exe
+  │
+  ├─ 全局启动锁
+  ├─ 解析 Codex 路径和 MSIX 包身份
+  ├─ 复用现有 CDP 实例，或选择稳定端口
+  ├─ 原生 AUMID 激活 Codex
+  │      --remote-debugging-port=<port>
+  │      --remote-allow-origins=http://127.0.0.1:<port>
+  │
+  ├─ 等待 /json 页面目标
+  ├─ 启动 detached supervisor
+  └─ 等待 -verify 成功
 
-正确做法是注入后**等新文档真正执行完 prelude 再断开**：轮询
-`!!window.__codexPlusForceZhInstalled`，最多 15 秒（`waitInjected()`）。
-这也是 `-verify` 存在的意义——它能戳破"退出码 0 但其实没注入"的假成功。
+supervisor
+  │
+  ├─ 全局 supervisor 锁
+  ├─ 连接 app://-/index.html
+  ├─ Page.addScriptToEvaluateOnNewDocument(prelude)
+  ├─ Runtime.evaluate(prelude)   // 当前文档立即生效
+  ├─ 周期健康检查
+  └─ 页面/连接变化后重连
+```
 
-## 4. prelude 的三个关键点
+不强制刷新刚启动的 Electron 页面，避免中断 bootstrap。
 
-### 4.1 拦截 Statsig 赋值
+## 3. 启动层
 
-Statsig 初始化时会执行 `window.__STATSIG__ = ...`。prelude 用
-`Object.defineProperty(window, "__STATSIG__", { set })` 抢在它之前装好 setter，
-一旦赋值就立刻给客户端打补丁。
+### 3.1 非 MSIX
 
-若 Statsig 在 prelude 之前就已存在，则直接补一次；同时每 50ms 轮询、最多 5 秒，
-覆盖"加载慢"的情况。
+按普通独立进程启动，并传入调试参数。
 
-### 4.2 同时 patch Layer 和 DynamicConfig
+### 3.2 MSIX / Microsoft Store
 
-应用可能通过 `useLayer("72216192").get("enable_i18n", false)` 读取，
-而 Layer 的 memo 缓存键恒为 `NoValues`，只补 DynamicConfig 不生效。
-因此两条通道都要包：
+商店版不能直接 `CreateProcess`：
 
-- `client.getLayer` / `client._getLayerImpl`
-- `client.getDynamicConfig`
+- 直接执行可能返回 `Access is denied`；
+- 绕过包身份启动的进程可能因缺少包身份退出。
 
-并同时改写 `__value` 与 `value`，防止应用绕过 `get` 直接读字段。
+Windows 实现从当前用户 AppModel 注册表读取
+`PackageRootFolder` 和包全名，再解析 `AppxManifest.xml`：
 
-### 4.3 写官方设置并只刷新一次
+```text
+PackageFullName:
+  OpenAI.Codex_<version>_<arch>_<resource>_<publisher>
 
-通过应用自身的 state API 把 `localeOverride` 设为 `zh-CN`，然后 `location.reload()`。
-用 `sessionStorage` 打标记，避免"设置未生效 → 再刷新"的死循环。
+PackageFamilyName:
+  OpenAI.Codex_<publisher>
 
-这就是"需重启 Codex 才能完整生效"的来源——刷新后语言才真正落下来。
+AUMID:
+  <PackageFamilyName>!<Application Id>
+```
 
-### 4.4 包装器必须原样返回原对象
+随后通过 `IApplicationActivationManager::ActivateApplication` 启动。
 
-包装 `getLayer` / `getDynamicConfig` 时只有一个合法写法：
+## 4. 端口和并发控制
+
+`v2.0.6` 使用三层约束避免“启动—关闭”循环：
+
+1. `CodexChineseLauncher` 全局互斥锁：同一时间只有一个启动流程。
+2. `CodexChineseSupervisor` 全局互斥锁：跨端口只允许一个 supervisor。
+3. `choosePort()` 顺序：
+   - 先复用当前任何受控 Codex CDP 端点；
+   - 再使用上次保存的端口；
+   - 最后才选择 `9229-9258` 中新的空闲端口。
+
+这会避免以下事故：
+
+```text
+旧实例在 9230 正常注入
+↓
+新任务错误选择空闲的 9229
+↓
+新任务杀掉 9230 的 Codex
+↓
+9230 supervisor 又把实例重启
+↓
+两个 supervisor 持续互相覆盖
+```
+
+## 5. 注入 prelude
+
+prelude 在页面主世界执行，主要步骤：
+
+1. 设置 `navigator.language` / `navigator.languages`。
+2. 拦截 `window.__STATSIG__` 赋值。
+3. 包装 `getLayer`、`_getLayerImpl`、`getDynamicConfig`。
+4. 对 `72216192` 强制：
 
 ```js
-var r = orig(n, o);
-if (n === "72216192") patchValue(r);
-return r;                     // ✅ 返回原对象
+enable_i18n = true
+locale_source = "SYSTEM"
 ```
 
-**不能**写成 `return n === "72216192" ? patchValue(r) : r;`。
-`patchValue()` 是"就地改写"的辅助函数，即使它返回 `obj`，这种写法也会把
-"返回值"和"补丁动作"耦合在一起；一旦它没有返回值，`getLayer("72216192")`
-就变成 `undefined`，应用拿不到 Layer，i18n 开关落空——**注入标记正常、
-进程退出码 0、界面依旧英文**，是最难排查的一类故障。
+5. 通过 Codex state API 将 `localeOverride` 设置为 `zh-CN`。
+6. API 未就绪时按递增间隔重试。
 
-这条约束由 `test/prelude.test.mjs` 守护（断言语义而非实现细节）。
+包装器必须返回原始对象：
 
-## 5. 体积工程
+```js
+var result = original(name, options);
+patch(result);
+return result;
+```
 
-3.5 MB 的来源：
+不能把 `patch(result)` 的返回值作为函数返回值。
 
-| 措施 | 作用 |
-|---|---|
-| `CGO_ENABLED=0` | 静态链接，Linux 不依赖 glibc，交叉编译无需工具链 |
-| 不用 `net/http` | 手写 localhost HTTP（按 Content-Length/chunked 精确读取） |
-| 不用 `crypto/tls` | 只连本机明文，不需要 TLS |
-| 手写 WebSocket | 握手 + 掩码帧 + ping/pong，约 250 行，替代第三方库 |
-| `-trimpath -buildvcs=false` | 去掉本地路径与 VCS 信息 |
-| `-ldflags "-s -w"` | 去掉符号表与 DWARF |
+## 6. 长驻 supervisor
 
-未使用 UPX：未签名压缩 exe 容易被杀软误报，对开源分发是负收益。
+`Page.addScriptToEvaluateOnNewDocument` 注册与 CDP 会话绑定。启动进程退出后，
+如果会话也关闭，后续页面导航就会失去补丁。
 
-## 6. 适配新版 Codex
+因此 CLI 启动一个分离的 supervisor：
 
-若失效，按顺序排查：
+- 保持 WebSocket；
+- 每 2 秒检查注入状态；
+- 连续失败后关闭旧连接并重新连接；
+- Codex 退出后按模式决定继续守护还是退出。
 
-1. 打开 Codex DevTools，确认 `window.__STATSIG__` 是否存在。
-2. 找到 i18n 对应的 Layer / DynamicConfig 名（搜索 `enable_i18n`）。
-3. 更新 `main.go` 中 `prelude` 里的 `"72216192"`。
-4. 重新构建并验证。
+托盘模式下 supervisor 读取 `-guard-pid`，托盘退出时 supervisor 同时退出。
 
-## 7. 安全边界
+## 7. 托盘守护
 
-- 只连 `127.0.0.1`，不发起外部请求。
-- 不改 Codex 安装文件、不写注册表、不常驻。
-- 需要 Codex 以 `--remote-debugging-port` 启动；该端口仅回环可达。
+托盘流程：
+
+```text
+启动
+↓
+6 秒等待 Codex 自身登录启动稳定
+↓
+调用 CLI
+↓
+复用受控实例或重启一次
+↓
+创建带 guard-pid 的 supervisor
+```
+
+同一托盘只允许一个实例。托盘内也使用原子状态阻止重复执行接管流程。
+
+## 8. 自动启动
+
+Windows 安装器写入：
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+CodexChinese = "<install-dir>\codex-chinese-tray.exe"
+```
+
+只影响当前用户，不需要管理员权限。
+
+## 9. 验证
+
+`-verify` 读取：
+
+```json
+{
+  "installed": true,
+  "lang": "zh-CN",
+  "i18n": "true",
+  "htmlLang": "zh-CN"
+}
+```
+
+成功条件：
+
+```text
+installed=true
+lang 以 zh 开头
+i18n != false
+退出码 0
+```
+
+## 10. 安全边界
+
+- CDP 只绑定 `127.0.0.1`。
+- 不修改 Codex 安装目录。
+- 不读取或上传认证信息。
+- 不请求管理员权限。
+- 不引入第三方 Go 依赖。
+- 不使用 UPX。

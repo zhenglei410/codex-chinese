@@ -2,196 +2,225 @@
 
 # codex-chinese
 
-**强制 Codex 桌面应用使用内置 zh-CN 中文界面**
-即使 Statsig / VPN 不通，也不再回退英文。
+**强制 Codex 桌面应用使用内置 `zh-CN` 中文界面**
 
+原生 MSIX 启动 · 长驻 CDP 注入 · 页面刷新自恢复 · Windows 登录自启
+
+[![CI](https://github.com/zhenglei410/codex-chinese/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenglei410/codex-chinese/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4B5563)](#下载)
-[![Size](https://img.shields.io/badge/binary-3.5%20MB-2ea44f)](#体积)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 </div>
 
----
+## 一句话给 AI
 
-## 为什么需要它
+> 打开并完整阅读 [`AGENTS.md`](AGENTS.md)，按 [`docs/AI_DEPLOY.md`](docs/AI_DEPLOY.md)
+> 构建、安装并验证本项目。只有 `codex-chinese.exe -verify` 退出码为 `0` 才算部署成功。
 
-Codex 桌面应用的中文（`zh-CN`）语言包是内置的，但**是否启用**由 Statsig 下发的开关控制
-（`Layer` / `DynamicConfig` 名 `"72216192"`，键 `enable_i18n`、`locale_source`）。
-当 Statsig 或 VPN 不通时，这个开关取不到值，界面就回退成英文——即使你在设置里选了中文。
+仓库地址：
 
-`codex-chinese` 只做一件事：在运行时把这个开关**强制打开**。
+```text
+https://github.com/zhenglei410/codex-chinese
+```
 
-## 它怎么工作（一句话）
+## 这是什么
 
-用 Chrome DevTools Protocol 往 Codex 渲染进程的主世界注入一段 prelude，
-让它返回 `enable_i18n: true`、`locale_source: "SYSTEM"`，并把官方 `localeOverride` 设为 `zh-CN`。
+Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig 的
+`Layer` / `DynamicConfig`（`72216192`）控制。当远程配置不可用时，Codex 可能回退英文。
 
-> 不改安装文件、不改 `app.asar`、不联网、不上传数据。
+`codex-chinese` 只处理这一问题：
 
-## 下载
+- 让 `enable_i18n` 返回 `true`；
+- 让 `locale_source` 返回 `SYSTEM`；
+- 将 Codex 语言覆盖为 `zh-CN`；
+- 保持后台注入会话，使页面刷新后仍能恢复中文。
 
-到 [Releases](https://github.com/zhenglei410/codex-chinese/releases) 下载对应平台：
+它不修改 `WindowsApps`、`app.asar`、Codex 安装文件或 Codex 认证信息。
 
-| 平台 | 文件 |
-|---|---|
-| Windows x64 | `codex-chinese-windows-amd64.exe` |
-| Windows ARM64 | `codex-chinese-windows-arm64.exe` |
-| macOS Intel | `codex-chinese-darwin-amd64` |
-| macOS Apple Silicon | `codex-chinese-darwin-arm64` |
-| Linux x64 | `codex-chinese-linux-amd64` |
-| Linux ARM64 | `codex-chinese-linux-arm64` |
-| Windows x64（托盘） | `codex-chinese-tray-windows-amd64.exe` |
-| Windows ARM64（托盘） | `codex-chinese-tray-windows-arm64.exe` |
+## 当前实现
 
-> 托盘版需与同目录的 `codex-chinese.exe` 一起使用（它负责实际注入）。
+`v2.0.6` 包含以下关键机制：
+
+1. **原生 MSIX 激活**：通过 Windows `IApplicationActivationManager` 和动态解析的 AUMID
+   启动商店版 Codex，不依赖 PowerShell/C# 临时脚本。
+2. **受控实例复用**：启动前先查找已有 Codex CDP 实例，避免重复选择端口后误杀正常实例。
+3. **全局单实例**：启动器和注入守护进程都有跨端口互斥锁，防止多个守护循环重启 Codex。
+4. **长驻注入**：在当前文档执行 prelude，同时注册到后续文档；守护进程断线后自动重连。
+5. **不强制刷新首屏**：避免打断 Electron bootstrap。
+6. **分阶段语言设置**：`localeOverride` 使用有界重试，避免应用 API 尚未就绪时静默失败。
+7. **托盘守护**：托盘常驻时，Codex 重新启动后会再次自动接管。
+8. **登录自启**：Windows 安装器写入当前用户登录启动项。
+
+详细原理见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+
+## Windows 快速部署
+
+### 方式一：给 AI 执行
+
+把仓库链接和下面这句话交给 AI：
+
+> 阅读 `https://github.com/zhenglei410/codex-chinese/blob/main/AGENTS.md`，
+> 按仓库中的 AI 部署流程完成构建、安装和校验。
+
+AI 会读取 `AGENTS.md`，执行 `scripts/ai_deploy.ps1`，并以 `-verify` 退出码 `0` 作为完成标准。
+
+### 方式二：从源码手动安装
+
+需要 Git、Go 1.21+；Node.js 仅用于注入脚本回归测试。
+
+```powershell
+git clone https://github.com/zhenglei410/codex-chinese.git
+cd codex-chinese
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\ai_deploy.ps1 -Version v2.0.6
+```
+
+脚本会：
+
+- 构建 8 个平台产物；
+- 运行 `go vet` 和 prelude 测试；
+- 生成 `dist/SHA256SUMS`；
+- 安装 CLI 与托盘；
+- 创建桌面快捷方式；
+- 配置当前用户登录自启动。
+
+默认不会立刻结束正在运行的 Codex。要让中文立即生效，重启 Codex，或双击桌面
+「Codex 中文」让托盘自动接管。
+
+### 方式三：如果已发布对应 Release
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\install_windows.ps1 -Version v2.0.6 -Mode tray
+```
+
+## 校验
+
+重启 Codex 后执行：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\codex-chinese\codex-chinese.exe" -verify
+```
+
+成功输出：
+
+```text
+verify: installed=true lang=zh-CN i18n=true html=zh-CN
+PASS
+```
+
+**退出码必须为 `0`。** 程序打印“完成”或窗口能打开都不算成功。
 
 ## 使用
 
-> **先完全退出 Codex（含托盘图标）**，再运行。
+### Windows 托盘
 
-```bash
-# Windows
-codex-chinese-windows-amd64.exe
+双击桌面「Codex 中文」。
 
-# macOS / Linux
-chmod +x codex-chinese-darwin-arm64
-./codex-chinese-darwin-arm64
+- 托盘会自动启动并接管 Codex；
+- 如果 Codex 已运行但没有调试端口，会重启一次；
+- 托盘常驻期间，Codex 关闭后再次打开时会自动重新接管；
+- 右键菜单提供「启动并强制中文」「环境诊断」「退出」。
+
+安装位置：
+
+```text
+%LOCALAPPDATA%\Programs\codex-chinese
 ```
 
-运行后终端会显示：
-
-```
-== 强制 Codex 中文界面 ==
-注入目标: app://...
-已注册注入脚本（对后续所有页面生效）。
-注入已生效（页面已加载）。
-完成：Codex 已强制中文。
-```
-
-但**不要只看这几行就以为成功了**——它只代表流程走完。真正的判据是：
-
-```bash
-codex-chinese-windows-amd64.exe -verify
-# verify: installed=true lang=zh-CN i18n=true
-# PASS                        ← 退出码 0 才算成功
-```
-
-三个数字缺一不可：`installed=true`、`lang=zh-CN`、`i18n=true`。
-
-### Windows 托盘版（常驻）
-
-双击 `codex-chinese-tray-windows-amd64.exe`，托盘出现图标后右键：
-
-- **立即强制中文** —— 启动/注入并刷新
-- **环境诊断** —— 显示 Codex 路径与调试端口状态
-- **退出**
-
-托盘版会调用同目录的 `codex-chinese.exe`，所以两个文件要放在一起。
-它常驻后，每次重启 Codex 只需再点一次「立即强制中文」。
-
-托盘也接受 `-codex` / `-port`，会原样透传给 CLI，例如：
+### CLI
 
 ```powershell
-codex-chinese-tray-windows-amd64.exe -codex "C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\ChatGPT.exe"
+codex-chinese.exe
+codex-chinese.exe -verify
+codex-chinese.exe -doctor
 ```
-
-失败细节写在 `%TEMP%\codex-chinese-tray.log`（托盘是 GUI 程序，没有控制台）。
 
 ### 参数
 
 | 参数 | 说明 |
 |---|---|
-| `-codex <path>` | 手动指定 Codex 可执行文件 |
-| `-port <n>` | CDP 调试端口，默认 `9229` |
-| `-wait <n>` | 等端口就绪的秒数，默认 `20` |
-| `-no-launch` | 只注入已开调试端口的实例 |
-| `-no-reload` | 只注册脚本，不刷新 |
-| `-version` | 打印版本 |
-| `-doctor` | 环境诊断（`exit 0` 可用 / `exit 2` 未找到 Codex） |
-| `-verify` | 校验是否真的已注入中文（`PASS` + `exit 0` 为准） |
+| `-codex <path>` | 手动指定 Codex 可执行文件或安装目录 |
+| `-port <n>` | 指定 CDP 端口；默认自动复用或选择 `9229-9258` |
+| `-wait <n>` | 等待启动和校验的秒数，默认 `45` |
+| `-no-launch` | 只操作已开放 CDP 的实例 |
+| `-no-restart` | Codex 未开 CDP 时只报错，不自动重启 |
+| `-doctor` | 环境诊断 |
+| `-verify` | 校验中文注入；退出码 `0` 为成功 |
+| `-version` | 输出版本 |
 
-### 常见问题
+## 日志
 
-- **macOS 提示"无法打开，因为无法验证开发者"**
-  `xattr -d com.apple.quarantine ./codex-chinese-darwin-arm64`
-- **Windows SmartScreen 拦截**
-  点"更多信息 → 仍要运行"（本程序未做代码签名）。
-- **提示"等待调试端口超时" / `cdp: not-ready`**
-  Codex 还在后台运行。Electron 是单实例的，已有实例会吞掉新进程的参数，
-  调试端口不会打开。请到任务管理器结束**全部** `ChatGPT.exe`（商店版通常有
-  十几个进程）和 `Codex.exe`，再重试。
-- **商店（MSIX）版报"找不到 Codex"**
-  商店版的可执行文件叫 `ChatGPT.exe`，装在
-  `C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<哈希>\app\` 下，
-  且该目录**不允许普通用户列目录**。v1.3.0 起会自动从注册表读取安装位置；
-  仍失败时用 `-codex` 手动指定，或给安装目录让它自己找。
-- **托盘启动后弹出黑色窗口**
-  v1.3.0 已修（托盘改为 GUI 子系统编译）。升级到 v1.3.0+ 即可。
-- **想一次性看全部环境信息**
-  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\diagnose_windows.ps1`
-  （加 `-TryLaunch` 会真的带调试端口启动一次做验证）。
-- **桌面快捷方式指向 `wscript.exe` / `.vbs`，界面仍是英文**
-  这是错误部署。VBS 不会给 Codex 传调试端口，注入不可能生效。
-  详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
-- **怎么确认真的生效了**
-  运行 `codex-chinese.exe -verify`，输出 `PASS` 才算成功。
-  完整判据是这一行：`verify: installed=true lang=zh-CN i18n=true`。
-  如果显示 `installed=true` 但 `i18n=false`，说明是 v1.1.0 及更早版本
-  （已修复），换 v1.2.0+ 即可。
-- **每次重启 Codex 都要重跑吗？**
-  是。程序不常驻、不写注册表；需要的话可自行做开机自启。
-
-## 从源码构建
-
-需要 Go ≥ 1.21，**零第三方依赖**。跑测试需要 Node ≥ 18（仅测试用）。
-
-```bash
-node test/prelude.test.mjs       # 注入脚本回归测试（11 项）
-go vet ./...
-VERSION=v1.2.0 bash build.sh     # 六个平台，产物在 dist/
-# Windows:
-$env:VERSION="v1.2.0"; .\build.ps1
+```text
+%TEMP%\codex-chinese-tray.log
+%TEMP%\codex-chinese-supervisor.log
 ```
 
-实测体积：
+故障处理见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
 
-| 目标 | 大小 |
-|---|---|
-| windows/amd64 | 3.6 MB |
-| windows/arm64 | 3.3 MB |
-| darwin/amd64 | 3.5 MB |
-| darwin/arm64 | 3.3 MB |
-| linux/amd64 | 3.4 MB |
-| linux/arm64 | 3.3 MB |
+## 支持平台
 
-体积来自三处优化：`CGO_ENABLED=0` 静态链接、不用 `net/http`/`crypto/tls`（手写 HTTP + WebSocket）、
-`-trimpath -ldflags "-s -w"`。
+| 平台 | CLI | 托盘守护 |
+|---|---|---|
+| Windows x64 / ARM64 | 是 | 是 |
+| macOS Intel / Apple Silicon | 是 | 否 |
+| Linux x64 / ARM64 | 是 | 否 |
 
-## 让 AI 自己部署
+Windows 商店/MSIX 版是当前重点验证目标。
 
-本仓库内置了机器可读的部署方案：
+## 构建与测试
 
-- [`AGENTS.md`](AGENTS.md) —— 项目约定与入口（Codex 等代理会自动读取）
-- [`docs/AI_DEPLOY.md`](docs/AI_DEPLOY.md) —— 确定性步骤、期望输出、故障对照表
-- [`deploy.json`](deploy.json) —— 构建/产物/校验的机器可读清单
-- [`scripts/ai_deploy.sh`](scripts/ai_deploy.sh) / [`ai_deploy.ps1`](scripts/ai_deploy.ps1) —— 一键执行并输出 JSON 报告
+```powershell
+$env:VERSION="v2.0.6"
+.\build.ps1
+go vet ./...
+node test/prelude.test.mjs
+```
 
-一句话给代理：
+或：
 
-> 读 `AGENTS.md`，Windows 优先运行 `scripts/install_windows.ps1`（下载发行版、建正确的 exe 快捷方式），
-> 启动后用 `codex-chinese.exe -verify` 校验，**输出 `PASS` 才算成功**。
+```bash
+VERSION=v2.0.6 bash build.sh
+go vet ./...
+node test/prelude.test.mjs
+```
 
-按 `AGENTS.md` 5.1 的硬性要求，**AI 在部署完成后必须主动告诉用户怎么用**
-（产物位置、启动方式、首次前置、成功标志、常用参数、重启提醒、排障），
-而不是只返回一段 JSON。
+产物输出到 `dist/`，共 8 个文件。
 
-## 免责声明
+## 卸载
 
-本项目为**非官方**社区工具，与 OpenAI 无关联。仅修改运行时行为，不修改 Codex 本体。
-Codex 升级后若 Statsig 的 Layer 名或键名变化，功能可能失效——欢迎提 Issue。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\install_windows.ps1 -Uninstall
+```
 
-## 许可证
+卸载会删除：
 
-[AGPL-3.0](LICENSE)。思路参考了 [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)，
-本实现为独立重写。
+- `%LOCALAPPDATA%\Programs\codex-chinese`
+- 桌面和开始菜单快捷方式
+- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CodexChinese`
+
+不会修改 Codex 本体。
+
+## 安全边界
+
+- 只连接 `127.0.0.1` 上的 CDP 端口。
+- 不读取、记录或上传 Codex API Key、登录令牌或对话内容。
+- 不修改 Codex 安装目录和认证配置。
+- 不请求管理员权限。
+- 登录自启动只写入当前用户注册表。
+
+## 已知限制
+
+- 这是非官方社区工具，与 OpenAI 无关联。
+- Codex 更新后，Statsig Layer 名或应用内部接口可能变化。
+- 未签名二进制可能触发 Windows SmartScreen。
+- CDP 端口仅绑定回环地址，但同机进程理论上可访问。
+
+## 许可
+
+[AGPL-3.0](LICENSE)。
+
+实现思路参考了 [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus) 的
+“强制中文界面”功能；本项目只提取并独立重写该单一功能，不依赖 Codex++。
