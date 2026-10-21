@@ -74,34 +74,52 @@ Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig
 
 ## Windows 快速部署
 
-### 方式一：给 AI 执行（直接下载 Release）
+### 方式一：给 AI 的提示词（直接下载 Release）
 
-不需要克隆仓库，也不需要安装 Go 或 Node。AI 只需下载发布包并安装。
+把下面任意一段完整复制给 AI。国内 AI 优先使用 Gitee，海外 AI 使用 GitHub。
 
-国内推荐：
+**国内 AI 提示词（Gitee 推荐）**
 
-```powershell
+```text
+请在 Windows 上直接下载并部署 codex-chinese v2.0.7 Release，不需要克隆源码，也不需要安装 Go 或 Node。
+
+请执行：
 $installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
 Invoke-WebRequest -UseBasicParsing `
   -Uri "https://gitee.com/zhenglei410/codex-chinese/raw/master/scripts/install_windows.ps1" `
   -OutFile $installer
+
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
   -Version v2.0.7 -ReleaseSource gitee -Mode tray
+
+安装完成后重启 Codex，再执行：
+& "$env:LOCALAPPDATA\Programs\codex-chinese\codex-chinese.exe" -verify
+
+只有退出码为 0 且输出 verify: installed=true lang=zh-CN i18n=true html=zh-CN 和 PASS，才能报告部署成功。不要伪造成功结果。
 ```
 
-海外使用：
+**海外 AI 提示词（GitHub 推荐）**
 
-```powershell
+```text
+请在 Windows 上直接下载并部署 codex-chinese v2.0.7 Release，不需要克隆源码，也不需要安装 Go 或 Node。
+
+请执行：
 $installer = Join-Path $env:TEMP "codex-chinese-install.ps1"
 Invoke-WebRequest -UseBasicParsing `
   -Uri "https://raw.githubusercontent.com/zhenglei410/codex-chinese/main/scripts/install_windows.ps1" `
   -OutFile $installer
+
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer `
   -Version v2.0.7 -ReleaseSource github -Mode tray
+
+安装完成后重启 Codex，再执行：
+& "$env:LOCALAPPDATA\Programs\codex-chinese\codex-chinese.exe" -verify
+
+只有退出码为 0 且输出 verify: installed=true lang=zh-CN i18n=true html=zh-CN 和 PASS，才能报告部署成功。不要伪造成功结果。
 ```
 
-安装器会下载 Release 中的 CLI、托盘、图标与 `SHA256SUMS`，校验后安装，
-创建快捷方式并配置登录自启。完成后重启 Codex，再执行 `-verify`。
+提示词会要求 AI 下载 Release 中的 CLI、托盘、图标与 `SHA256SUMS`，校验后安装，
+创建快捷方式并配置登录自启。
 
 ### 方式二：从源码构建并安装（开发用）
 
