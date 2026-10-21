@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/codex-chinese-icon.png" width="112" alt="codex-chinese icon">
+
 # codex-chinese
 
 **强制 Codex 桌面应用使用内置 `zh-CN` 中文界面**
@@ -39,7 +41,7 @@ Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig
 
 ## 当前实现
 
-`v2.0.6` 包含以下关键机制：
+`v2.0.7` 包含以下关键机制：
 
 1. **原生 MSIX 激活**：通过 Windows `IApplicationActivationManager` 和动态解析的 AUMID
    启动商店版 Codex，不依赖 PowerShell/C# 临时脚本。
@@ -50,6 +52,7 @@ Codex 桌面应用自带中文语言包，但界面是否启用 i18n 由 Statsig
 6. **分阶段语言设置**：`localeOverride` 使用有界重试，避免应用 API 尚未就绪时静默失败。
 7. **托盘守护**：托盘常驻时，Codex 重新启动后会再次自动接管。
 8. **登录自启**：Windows 安装器写入当前用户登录启动项。
+9. **独立应用图标**：托盘、桌面和开始菜单使用项目自己的深色青蓝图标。
 
 详细原理见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
@@ -73,7 +76,7 @@ git clone https://github.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts\ai_deploy.ps1 -Version v2.0.6
+  -File scripts\ai_deploy.ps1 -Version v2.0.7
 ```
 
 脚本会：
@@ -92,7 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts\install_windows.ps1 -Version v2.0.6 -Mode tray
+  -File scripts\install_windows.ps1 -Version v2.0.7 -Mode tray
 ```
 
 ## 校验
@@ -172,7 +175,7 @@ Windows 商店/MSIX 版是当前重点验证目标。
 ## 构建与测试
 
 ```powershell
-$env:VERSION="v2.0.6"
+$env:VERSION="v2.0.7"
 .\build.ps1
 go vet ./...
 node test/prelude.test.mjs
@@ -181,7 +184,7 @@ node test/prelude.test.mjs
 或：
 
 ```bash
-VERSION=v2.0.6 bash build.sh
+VERSION=v2.0.7 bash build.sh
 go vet ./...
 node test/prelude.test.mjs
 ```

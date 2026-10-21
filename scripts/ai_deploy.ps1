@@ -1,5 +1,5 @@
 ﻿param(
-  [string]$Version = "v2.0.6",
+  [string]$Version = "v2.0.7",
   [switch]$NoInstall,
   [switch]$Start
 )
@@ -93,6 +93,11 @@ if ($ArtifactRows.Count -ne 8) {
   Fail "artifact-count: $($ArtifactRows.Count)"
 }
 
+$BuiltIcon = Join-Path $Root "dist\codex-chinese.ico"
+if (-not (Test-Path -LiteralPath $BuiltIcon)) {
+  Fail "missing-icon: $BuiltIcon"
+}
+
 $SumLines = foreach ($File in Get-ChildItem -LiteralPath "dist" -File |
     Where-Object Name -ne "SHA256SUMS" | Sort-Object Name) {
   $Hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLower()
@@ -112,12 +117,14 @@ if (-not $NoInstall) {
   $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\codex-chinese"
   $InstalledCli = Join-Path $InstallDir "codex-chinese.exe"
   $InstalledTray = Join-Path $InstallDir "codex-chinese-tray.exe"
+  $InstalledIcon = Join-Path $InstallDir "codex-chinese.ico"
   $BuiltCli = Join-Path $Root "dist\codex-chinese-windows-amd64.exe"
   $BuiltTray = Join-Path $Root "dist\codex-chinese-tray-windows-amd64.exe"
 
   foreach ($Pair in @(
       @($BuiltCli, $InstalledCli),
-      @($BuiltTray, $InstalledTray)
+      @($BuiltTray, $InstalledTray),
+      @($BuiltIcon, $InstalledIcon)
     )) {
     $BuiltHash = (Get-FileHash -LiteralPath $Pair[0] -Algorithm SHA256).Hash
     $InstalledHash = (Get-FileHash -LiteralPath $Pair[1] -Algorithm SHA256).Hash
@@ -153,12 +160,16 @@ if (-not $NoInstall) {
     if ($Shortcut.TargetPath -ne $InstalledTray) {
       Fail "shortcut-target-mismatch: $ShortcutPath -> $($Shortcut.TargetPath)"
     }
+    if (-not $Shortcut.IconLocation.StartsWith($InstalledIcon, [StringComparison]::OrdinalIgnoreCase)) {
+      Fail "shortcut-icon-mismatch: $ShortcutPath -> $($Shortcut.IconLocation)"
+    }
   }
 
   $Install = [ordered]@{
     dir = $InstallDir
     cli = $InstalledCli
     tray = $InstalledTray
+    icon = $InstalledIcon
     autostart = $Autostart
     tray_subsystem = $Subsystem
     shortcuts = $Shortcuts
@@ -179,6 +190,10 @@ $Report = [ordered]@{
   go_version = $GoVersion
   prelude_test = $PreludeTest
   artifact_count = $ArtifactRows.Count
+  icon = [ordered]@{
+    path = $BuiltIcon
+    sha256 = (Get-FileHash -LiteralPath $BuiltIcon -Algorithm SHA256).Hash.ToLower()
+  }
   artifacts = $ArtifactRows
   install = $Install
   tray_started = $Started

@@ -6,7 +6,7 @@
 # 用法：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
 #   ... -Mode cli            # 只装命令行版
-#   ... -Version v2.0.6      # 指定版本
+#   ... -Version v2.0.7      # 指定版本
 #   ... -AssetDir .\dist     # 用本地已构建产物（离线）
 #   ... -Uninstall           # 卸载
 param(
@@ -70,6 +70,7 @@ if ($Uninstall) {
 $arch = Get-Arch
 $cliName = "codex-chinese-windows-$arch.exe"
 $trayName = "codex-chinese-tray-windows-$arch.exe"
+$iconName = "codex-chinese.ico"
 
 # 1. 解析版本
 if ($Version -eq "latest") {
@@ -103,6 +104,8 @@ try {
   Write-Host "下载 $cliName ..."
   $cli = Fetch-Asset $cliName
   $tray = $null
+  Write-Host "准备 $iconName ..."
+  $icon = Fetch-Asset $iconName
   if ($Mode -eq "tray") {
     Write-Host "下载 $trayName ..."
     $tray = Fetch-Asset $trayName
@@ -124,7 +127,7 @@ try {
     foreach ($line in Get-Content $sumsPath) {
       if ($line -match '^\s*([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') { $map[$Matches[2]] = $Matches[1] }
     }
-    foreach ($f in @($cli, $tray)) {
+    foreach ($f in @($cli, $tray, $icon)) {
       if (-not $f) { continue }
       $name = Split-Path $f -Leaf
       if ($map.ContainsKey($name)) {
@@ -141,6 +144,8 @@ try {
   Stop-InstalledProcesses
   Copy-Item $cli (Join-Path $InstallDir "codex-chinese.exe") -Force
   if ($tray) { Copy-Item $tray (Join-Path $InstallDir "codex-chinese-tray.exe") -Force }
+  $iconPath = Join-Path $InstallDir "codex-chinese.ico"
+  Copy-Item $icon $iconPath -Force
   Write-Host "已安装到: $InstallDir" -ForegroundColor Green
 
   $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
@@ -170,7 +175,7 @@ try {
       $sc = $ws.CreateShortcut($lnk)
       $sc.TargetPath = $target
       $sc.WorkingDirectory = $InstallDir
-      $sc.IconLocation = "$target,0"
+      $sc.IconLocation = "$iconPath,0"
       $sc.Description = "强制 Codex 中文界面"
       $sc.Save()
       Write-Host "已创建快捷方式: $lnk -> $target" -ForegroundColor Green

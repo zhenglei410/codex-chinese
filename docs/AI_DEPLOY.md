@@ -1,6 +1,6 @@
 # AI 部署手册
 
-目标版本：`v2.0.6`
+目标版本：`v2.0.7`
 目标平台：Windows 10/11（优先 MSIX/Store 版 Codex）
 
 本文供 AI 编码代理执行。完成标准不是“命令没报错”，而是
@@ -12,7 +12,7 @@
 git clone https://github.com/zhenglei410/codex-chinese.git
 cd codex-chinese
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\ai_deploy.ps1 -Version v2.0.6
+  -File .\scripts\ai_deploy.ps1 -Version v2.0.7
 ```
 
 脚本会构建、测试、安装并生成 JSON 报告。
@@ -48,7 +48,8 @@ Windows 安装器不需要 Visual C++ 运行库；Go 产物为静态编译。
 6. 生成 `dist/SHA256SUMS`。
 7. 调用 `install_windows.ps1 -AssetDir dist -Mode tray`。
 8. 校验安装文件哈希和登录启动项。
-9. 输出 `deploy-report.json`。
+9. 校验托盘、快捷方式图标和 Windows GUI 子系统。
+10. 输出 `deploy-report.json`。
 
 查看报告：
 
@@ -61,7 +62,7 @@ Get-Content .\deploy-report.json -Raw
 ```json
 {
   "ok": true,
-  "version": "v2.0.6",
+  "version": "v2.0.7",
   "artifact_count": 8
 }
 ```
@@ -69,7 +70,7 @@ Get-Content .\deploy-report.json -Raw
 ## 4. 手动等价步骤
 
 ```powershell
-$env:VERSION = "v2.0.6"
+$env:VERSION = "v2.0.7"
 .\build.ps1
 
 go vet ./...
@@ -77,12 +78,12 @@ node .\test\prelude.test.mjs
 
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\install_windows.ps1 `
-  -Version v2.0.6 `
+  -Version v2.0.7 `
   -AssetDir .\dist `
   -Mode tray
 ```
 
-8 个产物：
+8 个二进制产物及图标：
 
 ```text
 codex-chinese-windows-amd64.exe
@@ -93,6 +94,7 @@ codex-chinese-linux-amd64
 codex-chinese-linux-arm64
 codex-chinese-tray-windows-amd64.exe
 codex-chinese-tray-windows-arm64.exe
+codex-chinese.ico
 ```
 
 ## 5. 安装结果
@@ -100,6 +102,7 @@ codex-chinese-tray-windows-arm64.exe
 ```text
 %LOCALAPPDATA%\Programs\codex-chinese\codex-chinese.exe
 %LOCALAPPDATA%\Programs\codex-chinese\codex-chinese-tray.exe
+%LOCALAPPDATA%\Programs\codex-chinese\codex-chinese.ico
 桌面\Codex 中文.lnk
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CodexChinese
 ```

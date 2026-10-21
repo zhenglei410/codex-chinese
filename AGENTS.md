@@ -11,7 +11,7 @@ https://github.com/zhenglei410/codex-chinese
 
 ## 1. 目标
 
-在目标机器上部署 `codex-chinese v2.0.6`：
+在目标机器上部署 `codex-chinese v2.0.7`：
 
 - Windows 安装 CLI、托盘、快捷方式和当前用户登录自启动；
 - 让 Codex 桌面应用显示内置 `zh-CN` 中文界面；
@@ -27,7 +27,7 @@ https://github.com/zhenglei410/codex-chinese
 ```powershell
 git clone https://github.com/zhenglei410/codex-chinese.git
 cd codex-chinese
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ai_deploy.ps1 -Version v2.0.6
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ai_deploy.ps1 -Version v2.0.7
 ```
 
 如果机器没有 Git，先用系统包管理器安装 Git。如果脚本报告缺少 Go，安装
@@ -83,7 +83,7 @@ PASS
 ```bash
 git clone https://github.com/zhenglei410/codex-chinese.git
 cd codex-chinese
-VERSION=v2.0.6 bash build.sh
+VERSION=v2.0.7 bash build.sh
 go vet ./...
 node test/prelude.test.mjs
 ./dist/codex-chinese-<os>-<arch>
@@ -151,7 +151,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\diagnose_windows.p
 ## 8. 修改后的自证
 
 ```powershell
-$env:VERSION="v2.0.6"
+$env:VERSION="v2.0.7"
 .\build.ps1
 go vet ./...
 node test/prelude.test.mjs

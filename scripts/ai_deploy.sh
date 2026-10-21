@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${VERSION:-v2.0.6}"
+VERSION="${VERSION:-v2.0.7}"
 export VERSION
 
 if ! command -v go >/dev/null 2>&1; then

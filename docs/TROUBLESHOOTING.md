@@ -136,7 +136,7 @@ codex: C:\Program Files\WindowsApps\OpenAI.Codex_<版本>\app\ChatGPT.exe
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\install_windows.ps1 `
-  -Version v2.0.6 -AssetDir .\dist -Mode tray
+  -Version v2.0.7 -AssetDir .\dist -Mode tray
 ```
 
 ### macOS 无法打开

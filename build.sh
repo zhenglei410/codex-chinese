@@ -37,6 +37,12 @@ build_tray() {
 build_tray amd64
 build_tray arm64
 
+if [ ! -f "assets/codex-chinese.ico" ]; then
+  echo "missing icon: assets/codex-chinese.ico" >&2
+  exit 1
+fi
+cp "assets/codex-chinese.ico" "${OUT}/codex-chinese.ico"
+
 echo "--- sizes ---"
 ls -lh "$OUT"
 

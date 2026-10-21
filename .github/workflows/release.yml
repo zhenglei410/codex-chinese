@@ -33,6 +33,7 @@ jobs:
             dist/codex-chinese-linux-arm64
             dist/codex-chinese-tray-windows-amd64.exe
             dist/codex-chinese-tray-windows-arm64.exe
+            dist/codex-chinese.ico
             dist/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true

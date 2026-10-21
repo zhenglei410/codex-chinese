@@ -51,6 +51,8 @@ var (
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procGetCursorPos        = user32.NewProc("GetCursorPos")
 	procLoadIconW           = user32.NewProc("LoadIconW")
+	procLoadImageW          = user32.NewProc("LoadImageW")
+	procDestroyIcon         = user32.NewProc("DestroyIcon")
 	procLoadCursorW         = user32.NewProc("LoadCursorW")
 
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
@@ -88,6 +90,9 @@ const (
 
 	idiApplication = 32512
 	idcArrow       = 32512
+	imageIcon      = 1
+	lrLoadFromFile = 0x00000010
+	lrDefaultSize  = 0x00000040
 
 	createNoWindow = 0x08000000
 )
@@ -149,6 +154,7 @@ var (
 	gMenu     uintptr
 	gHWND     uintptr
 	gCallback uintptr
+	gTrayIcon uintptr
 )
 
 func copyUTF16(dst []uint16, s string) {
@@ -181,6 +187,36 @@ func cliPath() string {
 		}
 	}
 	return ""
+}
+
+func trayIcon() uintptr {
+	exe, _ := os.Executable()
+	paths := []string{
+		filepath.Join(filepath.Dir(exe), "codex-chinese.ico"),
+		filepath.Join("assets", "codex-chinese.ico"),
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		ptr, err := syscall.UTF16PtrFromString(path)
+		if err != nil {
+			continue
+		}
+		icon, _, _ := procLoadImageW.Call(
+			0,
+			uintptr(unsafe.Pointer(ptr)),
+			imageIcon,
+			0,
+			0,
+			lrLoadFromFile|lrDefaultSize,
+		)
+		if icon != 0 {
+			return icon
+		}
+	}
+	icon, _, _ := procLoadIconW.Call(0, idiApplication)
+	return icon
 }
 
 // parseArgs 手动解析命令行。
@@ -359,6 +395,10 @@ func quit() {
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&gNID)))
 	procDestroyMenu.Call(gMenu)
 	procDestroyWindow.Call(gHWND)
+	if gTrayIcon != 0 {
+		procDestroyIcon.Call(gTrayIcon)
+		gTrayIcon = 0
+	}
 	procPostQuitMessage.Call(0)
 }
 
@@ -395,6 +435,7 @@ func main() {
 		return
 	}
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
+	gTrayIcon = trayIcon()
 
 	className, _ := syscall.UTF16PtrFromString("CodexChineseTrayWindow")
 	windowName, _ := syscall.UTF16PtrFromString("codex-chinese")
@@ -406,6 +447,7 @@ func main() {
 		lpfnWndProc:   gCallback,
 		hInstance:     hInstance,
 		hCursor:       0,
+		hIcon:         gTrayIcon,
 		lpszClassName: className,
 	}
 	wc.cbSize = uint32(unsafe.Sizeof(wc))
@@ -425,15 +467,13 @@ func main() {
 	}
 	gHWND = hwnd
 
-	hIcon, _, _ := procLoadIconW.Call(0, idiApplication)
-
 	// 托盘图标
 	gNID = notifyIconDataW{
 		hWnd:             hwnd,
 		uID:              1,
 		uFlags:           nifMessage | nifIcon | nifTip,
 		uCallbackMessage: trayCallback,
-		hIcon:            hIcon,
+		hIcon:            gTrayIcon,
 	}
 	gNID.cbSize = uint32(unsafe.Sizeof(gNID))
 	copyUTF16(gNID.szTip[:], "codex-chinese：强制 Codex 中文")

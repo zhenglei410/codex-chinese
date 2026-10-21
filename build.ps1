@@ -36,6 +36,11 @@ try {
     $env:GOOS = "windows"; $env:GOARCH = $arch; $env:CGO_ENABLED = "0"
     go build -trimpath -buildvcs=false -ldflags "$LdFlags -H=windowsgui" -o "$Out/codex-chinese-tray-windows-$arch.exe" ./tray
   }
+
+  if (-not (Test-Path -LiteralPath "assets\codex-chinese.ico")) {
+    throw "missing icon: assets\codex-chinese.ico"
+  }
+  Copy-Item -LiteralPath "assets\codex-chinese.ico" -Destination "$Out\codex-chinese.ico" -Force
 }
 finally {
   $env:GOOS = $savedGoos

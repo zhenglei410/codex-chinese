@@ -72,7 +72,7 @@ AUMID:
 
 ## 4. 端口和并发控制
 
-`v2.0.6` 使用三层约束避免“启动—关闭”循环：
+`v2.0.7` 使用三层约束避免“启动—关闭”循环：
 
 1. `CodexChineseLauncher` 全局互斥锁：同一时间只有一个启动流程。
 2. `CodexChineseSupervisor` 全局互斥锁：跨端口只允许一个 supervisor。
